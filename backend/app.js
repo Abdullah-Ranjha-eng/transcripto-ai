@@ -36,7 +36,7 @@ const app = express();
 // Works locally (Vite dev server) and in production (deployed frontend)
 const allowedOrigins = [
   "http://localhost:5173",
-  "https://transcripto-ai-v2-53f8.vercel.app",
+  "https://your-frontend-url.vercel.app",
 ];
 
 app.use(cors({
@@ -66,3 +66,4 @@ process.on("unhandledRejection", (err) => {
   console.log(`Error: ${err.message}`);
   server.close(() => process.exit(1));
 });
+

@@ -8,6 +8,7 @@ export const VIDEOS_DIR     = path.join(UPLOADS_ROOT, "videos");
 export const BURNED_DIR     = path.join(UPLOADS_ROOT, "burned");
 
 export const ensureUploadDirs = () => {
+  if (process.env.VERCEL) return; // Vercel's filesystem is read-only except /tmp; Cloudinary handles storage there
   [UPLOADS_ROOT, VIDEOS_DIR, BURNED_DIR].forEach((dir) => {
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
   });

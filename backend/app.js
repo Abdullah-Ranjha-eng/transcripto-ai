@@ -16,7 +16,7 @@ import { connectDatabase } from "./config/dbConnect.js";
 import errorMiddleware from "./middlewares/errors.js";
 import { ensureUploadDirs, UPLOADS_ROOT } from "./utils/localStorage.js";
 
-ensureUploadDirs();
+ensureUploadDirs(); // no-op on Vercel — see utils/localStorage.js
 
 // Routes
 import authRoutes from "./routes/auth.js";
@@ -33,10 +33,13 @@ connectDatabase();
 
 const app = express();
 
-// Works locally (Vite dev server) and in production (deployed frontend)
+// Works locally (Vite dev server) and in production (deployed frontend).
+// This must be the FRONTEND's origin — no trailing slash, since browsers
+// never send one in the Origin header, so a mismatched slash silently
+// breaks every CORS check.
 const allowedOrigins = [
   "http://localhost:5173",
-  "https://transcripto-ai.vercel.app/",
+  "https://transcripto-ai-863i.vercel.app",
 ];
 
 app.use(cors({
@@ -58,12 +61,17 @@ app.use("/api/v1", translateRoutes);
 
 app.use(errorMiddleware);
 
-const server = app.listen(process.env.PORT, () => {
-  console.log(`Server on PORT ${process.env.PORT} in ${process.env.NODE_ENV} mode.`);
-});
+// On Vercel, the platform invokes the exported app directly as a request
+// handler — app.listen() is only for local/traditional server environments.
+if (!process.env.VERCEL) {
+  const server = app.listen(process.env.PORT, () => {
+    console.log(`Server on PORT ${process.env.PORT} in ${process.env.NODE_ENV} mode.`);
+  });
 
-process.on("unhandledRejection", (err) => {
-  console.log(`Error: ${err.message}`);
-  server.close(() => process.exit(1));
-});
+  process.on("unhandledRejection", (err) => {
+    console.log(`Error: ${err.message}`);
+    server.close(() => process.exit(1));
+  });
+}
 
+export default app;

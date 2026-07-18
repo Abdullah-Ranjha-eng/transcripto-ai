@@ -36,7 +36,7 @@ const app = express();
 // Works locally (Vite dev server) and in production (deployed frontend)
 const allowedOrigins = [
   "http://localhost:5173",
-  "https://transcripto-ai.vercel.app",
+  "https://transcripto-ai.vercel.app/",
 ];
 
 app.use(cors({

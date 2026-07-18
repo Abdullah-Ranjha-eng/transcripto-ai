@@ -1,11 +1,6 @@
 {
   "version": 2,
-  "functions": {
-    "app.js": {
-      "maxDuration": 10
-    }
-  },
   "rewrites": [
-    { "source": "/(.*)", "destination": "/app.js" }
+    { "source": "/(.*)", "destination": "/api/index" }
   ]
 }

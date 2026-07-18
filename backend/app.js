@@ -26,7 +26,7 @@ import translateRoutes from "./routes/translate.js";
 
 process.on("uncaughtException", (err) => {
   console.log(`Error: ${err.message}`);
-  process.exit(1);
+  if (!process.env.VERCEL) process.exit(1);
 });
 
 connectDatabase();

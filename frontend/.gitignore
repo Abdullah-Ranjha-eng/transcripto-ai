@@ -50,3 +50,4 @@ __screenshots__/
 build/
 .vscode/
 .codeatlas/
+config.env

@@ -48,13 +48,13 @@
                 <p class="font-semibold mb-1" :class="theme.isDark ? 'text-gray-300' : 'text-gray-700'">Drag & drop or click to select</p>
                 <p class="text-sm" :class="theme.isDark ? 'text-gray-500' : 'text-gray-500'">MP4, AVI, MOV, MKV — up to 500 MB</p>
               </div>
-              <div v-else class="flex items-center justify-center gap-3">
-                <span class="text-2xl">🎬</span>
-                <div class="text-left">
-                  <p class="font-semibold text-indigo-400 text-sm">{{ file.name }}</p>
+              <div v-else class="flex items-center justify-center gap-3 min-w-0">
+                <span class="text-2xl shrink-0">🎬</span>
+                <div class="text-left min-w-0">
+                  <p class="font-semibold text-indigo-400 text-sm truncate">{{ file.name }}</p>
                   <p class="text-xs" :class="theme.isDark ? 'text-gray-500' : 'text-gray-500'">{{ (file.size / 1024 / 1024).toFixed(1) }} MB</p>
                 </div>
-                <button @click.stop="file = null" class="ml-2 text-gray-500 hover:text-red-400 text-lg">✕</button>
+                <button @click.stop="file = null" class="ml-2 shrink-0 text-gray-500 hover:text-red-400 text-lg">✕</button>
               </div>
             </div>
             <input ref="fileInput" type="file" accept="video/*" class="hidden" @change="onFileChange" />

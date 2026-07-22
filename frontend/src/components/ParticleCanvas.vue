@@ -24,7 +24,8 @@ onMounted(() => {
   window.addEventListener("resize", resize);
   window.addEventListener("mousemove", (e) => { mouse.x = e.clientX; mouse.y = e.clientY; });
 
-  const COUNT = 130;
+  const COUNT = window.innerWidth < 640 ? 45 : window.innerWidth < 1024 ? 80 : 130;
+  const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   for (let i = 0; i < COUNT; i++) {
     const angle = Math.random() * Math.PI * 2;
     const radius = 80 + Math.random() * Math.min(window.innerWidth, window.innerHeight) * 0.42;
@@ -86,10 +87,12 @@ const draw = () => {
     }
   }
 
-  animId = requestAnimationFrame(draw);
+  if (!prefersReducedMotion) {
+    animId = requestAnimationFrame(draw);
+  }
 };
 
-  draw();
+  draw(); // always draw one frame; loop above only continues if motion isn't reduced
   onBeforeUnmount(() => {
     cancelAnimationFrame(animId);
     window.removeEventListener("resize", resize);

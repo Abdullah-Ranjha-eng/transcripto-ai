@@ -1,5 +1,5 @@
 <template>
-  <main class="max-w-5xl mx-auto px-6 py-10">
+  <main class="max-w-5xl mx-auto px-6 pt-32 pb-16">
     <LoadingSpinner v-if="store.loading && !store.currentVideo" />
 
     <template v-else-if="store.currentVideo">

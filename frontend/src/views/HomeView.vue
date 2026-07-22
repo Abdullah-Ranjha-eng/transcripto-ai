@@ -18,7 +18,7 @@
           Powered by Groq Whisper + LLaMA 3.3 70B
         </div>
 
-        <h1 class="text-6xl md:text-7xl lg:text-8xl font-extrabold leading-tight tracking-tight mb-6"
+        <h1 class="text-4xl sm:text-5xl md:text-7xl lg:text-8xl font-extrabold leading-tight tracking-tight mb-6"
           :class="theme.isDark ? 'text-white' : 'text-gray-900'">
           Your videos,<br>
           <span class="bg-gradient-to-r from-indigo-400 via-cyan-400 to-indigo-400 bg-clip-text text-transparent animate-gradient">
@@ -61,13 +61,13 @@
 </div>
 
         <!-- Floating stats -->
-        <div class="grid grid-cols-3 gap-4 max-w-2xl mx-auto">
+        <div class="grid grid-cols-3 gap-2 sm:gap-4 max-w-2xl mx-auto">
           <div v-for="s in stats" :key="s.label"
-            class="rounded-2xl p-5 text-center border backdrop-blur transition-colors"
+            class="rounded-2xl p-3 sm:p-5 text-center border backdrop-blur transition-colors"
             :class="theme.isDark ? 'bg-white/5 border-white/10 hover:border-indigo-500/40' : 'bg-white border-gray-200 hover:border-indigo-300 shadow-sm'">
-            <div class="text-3xl font-extrabold mb-1"
+            <div class="text-xl sm:text-3xl font-extrabold mb-0.5 sm:mb-1"
               :class="theme.isDark ? 'text-white' : 'text-gray-900'">{{ s.value }}</div>
-            <div class="text-xs" :class="theme.isDark ? 'text-gray-500' : 'text-gray-500'">{{ s.label }}</div>
+            <div class="text-[10px] sm:text-xs" :class="theme.isDark ? 'text-gray-500' : 'text-gray-500'">{{ s.label }}</div>
           </div>
         </div>
       </div>

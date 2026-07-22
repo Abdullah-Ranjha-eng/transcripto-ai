@@ -24,5 +24,14 @@ export default (err, req, res, next) => {
   if (process.env.NODE_ENV === "DEVELOPMENT") {
     return res.status(error.statusCode).json({ message: error.message, error: err, stack: err?.stack });
   }
-  res.status(error.statusCode).json({ message: error.message });
+
+  // In production, only ever show messages we explicitly created above via
+  // ErrorHandler (safe, user-facing). Anything else (raw driver/internal
+  // errors, e.g. Mongoose buffering timeouts) gets a generic message instead
+  // of leaking internals to the client.
+  const safeMessage = error instanceof ErrorHandler
+    ? error.message
+    : "Something went wrong. Please try again.";
+
+  res.status(error.statusCode).json({ message: safeMessage });
 };

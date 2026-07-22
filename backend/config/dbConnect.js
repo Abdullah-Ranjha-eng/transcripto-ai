@@ -11,8 +11,10 @@ export const connectDatabase = () => {
   return mongoose.connect(DB_URI)
     .then((con) => {
       console.log(`MongoDB connected: ${con.connection.host}`);
+      return true;
     })
     .catch((err) => {
       console.error(`MongoDB connection FAILED: ${err.message}`);
+      return false;
     });
 };

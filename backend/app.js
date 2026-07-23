@@ -82,6 +82,24 @@ app.use(cookieParser());
 // files are watchable immediately, before/without waiting on Cloudinary.
 app.use("/uploads", express.static(UPLOADS_ROOT));
 
+// Wait for the (cached, resolved-once) DB connection before touching any
+// route that needs it. Without this, on a cold start, a request could reach
+// a Mongo query before the connection has finished — Mongoose then buffers
+// the operation and only waits up to its default 10s timeout, which can be
+// tighter than a genuinely slow cold-start handshake to Atlas. Explicitly
+// awaiting the same promise here removes that race and gives a clear 503
+// instead of a cryptic "buffering timed out" error.
+app.use("/api/v1", async (req, res, next) => {
+  const connected = await dbConnectionPromise;
+  if (!connected) {
+    return res.status(503).json({
+      success: false,
+      message: "Database temporarily unavailable. Please try again in a moment.",
+    });
+  }
+  next();
+});
+
 app.use("/api/v1", authRoutes);
 app.use("/api/v1", videoRoutes);
 app.use("/api/v1", captionRoutes);

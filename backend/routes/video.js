@@ -1,6 +1,4 @@
 import express from "express";
-import path from "path";
-import { randomUUID } from "crypto";
 import {
   uploadVideo,
   getUserVideos,
@@ -9,17 +7,14 @@ import {
 } from "../controllers/videoController.js";
 import { isAuthenticatedUser } from "../middlewares/auth.js";
 import multer from "multer";
-import { VIDEOS_DIR, ensureUploadDirs } from "../utils/localStorage.js";
 
-ensureUploadDirs();
-
+// In-memory storage — the buffer goes straight to Cloudinary in the
+// controller, never touching disk. This avoids writing to
+// backend/uploads/videos, which doesn't exist / isn't writable on Vercel.
+// (Vercel's own request-body size cap of ~4.5MB applies regardless of this
+// fileSize limit — this just prevents oversized uploads locally too.)
 const upload = multer({
-  storage: multer.diskStorage({
-    destination: (req, file, cb) => cb(null, VIDEOS_DIR),
-    filename: (req, file, cb) => {
-      cb(null, `${randomUUID()}${path.extname(file.originalname) || ".mp4"}`);
-    },
-  }),
+  storage: multer.memoryStorage(),
   limits: { fileSize: 500 * 1024 * 1024 }, // 500MB
 });
 const router = express.Router();

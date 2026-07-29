@@ -9,17 +9,15 @@ import { randomUUID } from "crypto";
 import { pipeline } from "stream/promises";
 import { createWriteStream } from "fs";
 import axios from "axios";
-import Groq from "groq-sdk";
 import ffmpeg from "fluent-ffmpeg";
 import ffmpegPath from "ffmpeg-static";
 import cloudinary from "cloudinary";
 import { toPublicUrl, safeUnlink, localPathFor, VIDEOS_DIR, BURNED_DIR } from "../utils/localStorage.js";
 import { syncToCloudinaryInBackground } from "../utils/backgroundUpload.js";
+import { transcribeAudioFile } from "../utils/whisper.js";
 
 
 ffmpeg.setFfmpegPath(ffmpegPath);
-
-const getGroq = () => new Groq({ apiKey: process.env.GROQ_API_KEY });
 
 // Helper: download video to temp file
 const downloadVideo = async (url, destPath) => {
@@ -94,15 +92,11 @@ export const generateCaptions = catchAsyncErrors(async (req, res, next) => {
   // Whisper's segment.start often includes leading silence before the
   // speaker actually starts talking (especially after a pause), which makes
   // captions appear too early. Word timestamps let us tighten each caption
-  // to when speech genuinely begins.
-  let transcription;
+  // to when speech genuinely begins. (Shared with the audio-first flow in
+  // transcribeController.js so both paths behave identically.)
+  let captions, language;
   try {
-    transcription = await getGroq().audio.transcriptions.create({
-      file: fs.createReadStream(tmpAudio),
-      model: "whisper-large-v3",
-      response_format: "verbose_json",
-      timestamp_granularities: ["segment", "word"],
-    });
+    ({ captions, language } = await transcribeAudioFile(tmpAudio));
   } finally {
     // Only clean up the source video if it was a temp download — the local
     // upload copy is reused by later steps (translate/burn), so keep it.
@@ -110,46 +104,25 @@ export const generateCaptions = catchAsyncErrors(async (req, res, next) => {
     fs.unlink(tmpAudio, () => {});
   }
 
-  // A little breathing room before the first word so the caption doesn't
-  // pop in at the exact frame speech starts — but never earlier than
-  // Whisper's own segment boundary.
-  const LEAD_IN_SECONDS = 0.12;
-  const words = transcription.words || [];
-  let wordIdx = 0;
-
-  const captions = transcription.segments.map((seg, i) => {
-    const nextSegStart = transcription.segments[i + 1]?.start ?? Infinity;
-    const segWords = [];
-    while (wordIdx < words.length && words[wordIdx].start < nextSegStart) {
-      segWords.push(words[wordIdx]);
-      wordIdx++;
-    }
-
-    const firstWordStart = segWords.length ? segWords[0].start : seg.start;
-    const start = Math.max(seg.start, firstWordStart - LEAD_IN_SECONDS);
-
-    return { start, end: seg.end, text: seg.text.trim() };
-  });
-
   if (captions.length === 0)
     return next(new ErrorHandler("Could not generate captions. Try a clearer audio.", 400));
 
   let captionDoc = await Caption.findOne({ video: video._id, user: req.user._id });
   if (captionDoc) {
     captionDoc.captions = captions;
-    captionDoc.language = transcription.language || "en";
+    captionDoc.language = language;
     await captionDoc.save();
   } else {
     captionDoc = await Caption.create({
       video: video._id,
       user: req.user._id,
-      language: transcription.language || "en",
+      language,
       captions,
     });
   }
 
   video.status = "captioned";
-  video.detectedLanguage = transcription.language || "en";
+  video.detectedLanguage = language;
   await video.save();
 
   res.status(200).json({ success: true, captions: captionDoc });

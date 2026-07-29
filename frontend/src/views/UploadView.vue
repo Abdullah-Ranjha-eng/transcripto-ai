@@ -60,34 +60,20 @@
             <input ref="fileInput" type="file" accept="video/*" class="hidden" @change="onFileChange" />
           </div>
 
-          <!-- Progress bar -->
-          <div v-if="store.loading" class="space-y-1.5">
-            <div class="flex justify-between text-xs" :class="theme.isDark ? 'text-gray-400' : 'text-gray-600'">
-              <span>{{ progress < 100 ? "Uploading…" : "Finishing up…" }}</span>
-              <span class="font-semibold" :class="theme.isDark ? 'text-indigo-400' : 'text-indigo-600'">{{ progress }}%</span>
-            </div>
-            <div class="w-full rounded-full h-2.5 overflow-hidden" :class="theme.isDark ? 'bg-gray-800' : 'bg-gray-200'">
-              <div
-                class="h-full rounded-full transition-all duration-200 ease-out"
-                :class="progress < 100
-                  ? 'bg-gradient-to-r from-indigo-500 to-cyan-400'
-                  : 'bg-gradient-to-r from-indigo-500 to-cyan-400 animate-pulse'"
-                :style="{ width: progress + '%' }"
-              ></div>
-            </div>
-          </div>
-
           <p v-if="store.error" class="text-sm text-red-400 bg-red-900/20 border border-red-800 rounded-xl px-4 py-3">
             {{ store.error }}
           </p>
 
-          <button @click="handleUpload" :disabled="!file || !title || store.loading"
+          <button @click="handleUpload" :disabled="!file || !title || starting"
             class="w-full rounded-xl py-3 font-bold text-sm transition-all duration-200 disabled:opacity-40"
             :class="theme.isDark
               ? 'bg-gradient-to-r from-indigo-600 to-cyan-500 hover:from-indigo-500 hover:to-cyan-400 text-white shadow-lg shadow-indigo-500/30'
               : 'bg-gradient-to-r from-indigo-600 to-cyan-500 hover:from-indigo-500 hover:to-cyan-400 text-white shadow-md shadow-indigo-500/20'">
-            {{ store.loading ? (progress < 100 ? `Uploading ${progress}%…` : "Finishing up…") : "Upload & Generate Captions →" }}
+            {{ starting ? "Starting…" : "Upload & Generate Captions →" }}
           </button>
+          <p class="text-xs text-center" :class="theme.isDark ? 'text-gray-500' : 'text-gray-500'">
+            You'll be taken straight to the video page — upload and captioning continue in the background.
+          </p>
         </div>
 
         <!-- What happens next -->
@@ -157,24 +143,22 @@ const router = useRouter();
 
 const title = ref("");
 const file  = ref(null);
-const progress = ref(0);
+const starting = ref(false);
 const fileInput = ref(null);
 
-const onFileChange = (e) => { file.value = e.target.files[0]; progress.value = 0; };
-const onDrop = (e) => { file.value = e.dataTransfer.files[0]; progress.value = 0; };
+const onFileChange = (e) => { file.value = e.target.files[0]; };
+const onDrop = (e) => { file.value = e.dataTransfer.files[0]; };
 
+// startUpload only awaits the (fast, tiny) record-creation request — the
+// actual video upload and audio transcription keep running in the store
+// after we navigate away, so the user lands on the video page instead of
+// staring at this form.
 const handleUpload = async () => {
   if (!file.value || !title.value) return;
-  progress.value = 0;
-  const fd = new FormData();
-  fd.append("title", title.value);
-  fd.append("video", file.value);
-  const video = await store.uploadVideo(fd, (p) => { progress.value = p; });
-  if (video) {
-    router.push(`/video/${video._id}`);
-  } else {
-    progress.value = 0; // upload failed — clear the bar rather than leaving it stuck
-  }
+  starting.value = true;
+  const video = await store.startUpload(file.value, title.value);
+  starting.value = false;
+  if (video) router.push(`/video/${video._id}`);
 };
 
 const nextSteps = [

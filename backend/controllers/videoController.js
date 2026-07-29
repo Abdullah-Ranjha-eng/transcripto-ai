@@ -1,50 +1,76 @@
 import Video from "../models/video.js";
+import Caption from "../models/caption.js";
 import ErrorHandler from "../utils/errorHandler.js";
 import catchAsyncErrors from "../middlewares/catchAsyncErrors.js";
 import cloudinary from "cloudinary";
 import { safeUnlink, localPathFor, VIDEOS_DIR, BURNED_DIR } from "../utils/localStorage.js";
 
-
-// Upload video => POST /api/v1/videos/upload
-// multer holds the file in memory (see routes/video.js) — we stream that
-// buffer straight to Cloudinary and never touch disk at all. This used to
-// write to backend/uploads/videos via multer's disk storage, which doesn't
-// exist and isn't writable on Vercel (ENOENT). Since request bodies on
-// Vercel are capped around ~4.5MB anyway, anything that gets this far is
-// small enough that waiting on the Cloudinary upload directly is fine —
-// no need for a background sync + polling for this step.
-export const uploadVideo = catchAsyncErrors(async (req, res, next) => {
-  if (!req.file) return next(new ErrorHandler("Please upload a video file.", 400));
-
+// ── Create a placeholder record => POST /api/v1/videos/init ──────────────
+// Returns a real _id immediately, before a single byte of the video has
+// left the browser, so the frontend can navigate straight to the video
+// page and start both the Cloudinary upload and the parallel client-side
+// audio transcription right away, instead of blocking on either.
+export const initVideo = catchAsyncErrors(async (req, res, next) => {
   const { title } = req.body;
   if (!title) return next(new ErrorHandler("Please provide a title.", 400));
-
-  const result = await new Promise((resolve, reject) => {
-    const stream = cloudinary.v2.uploader.upload_stream(
-      {
-        resource_type: "video",
-        folder: "transcripto-ai/videos",
-        chunk_size: 6000000,
-        timeout: 180000,
-      },
-      (err, uploadResult) => (err ? reject(err) : resolve(uploadResult))
-    );
-    stream.end(req.file.buffer);
-  });
 
   const video = await Video.create({
     user: req.user._id,
     title,
-    duration: typeof result.duration === "number" ? result.duration : null,
-    originalVideo: {
-      public_id: result.public_id,
-      url: result.secure_url,
-      cloudStatus: "done",
-    },
-    status: "uploaded",
+    originalVideo: { cloudStatus: "pending" },
+    status: "uploading",
   });
 
   res.status(201).json({ success: true, video });
+});
+
+// ── Signed upload params => GET /api/v1/videos/sign-upload ───────────────
+// Lets the browser upload the video file directly to Cloudinary, bypassing
+// our server (and Vercel's ~4.5MB request body cap) entirely. Only the
+// exact params signed here are valid for the upload the client makes —
+// Cloudinary rejects anything that doesn't match.
+export const getUploadSignature = catchAsyncErrors(async (req, res) => {
+  const timestamp = Math.round(Date.now() / 1000);
+  const folder = "transcripto-ai/videos";
+
+  const signature = cloudinary.v2.utils.api_sign_request(
+    { timestamp, folder },
+    process.env.CLOUDINARY_API_SECRET
+  );
+
+  res.status(200).json({
+    success: true,
+    signature,
+    timestamp,
+    folder,
+    apiKey: process.env.CLOUDINARY_API_KEY,
+    cloudName: process.env.CLOUDINARY_CLOUD_NAME,
+  });
+});
+
+// ── Attach the finished Cloudinary asset => PUT /api/v1/videos/:id/finalize ──
+// Called by the frontend once its direct-to-Cloudinary upload resolves.
+export const finalizeVideo = catchAsyncErrors(async (req, res, next) => {
+  const { public_id, url, duration } = req.body;
+  if (!public_id || !url)
+    return next(new ErrorHandler("Missing public_id/url.", 400));
+
+  const video = await Video.findById(req.params.id);
+  if (!video) return next(new ErrorHandler("Video not found.", 404));
+  if (video.user.toString() !== req.user._id.toString())
+    return next(new ErrorHandler("Not authorized.", 403));
+
+  video.originalVideo = { public_id, url, cloudStatus: "done" };
+  if (typeof duration === "number") video.duration = duration;
+
+  // Captions may already exist if the parallel audio-transcription pass
+  // (from-audio route) finished before this upload did — don't regress
+  // the status badge back to "uploaded" if so.
+  const hasCaptions = await Caption.exists({ video: video._id, user: req.user._id });
+  video.status = hasCaptions ? "captioned" : "uploaded";
+  await video.save();
+
+  res.status(200).json({ success: true, video });
 });
 
 // Get all videos for current user => GET /api/v1/videos

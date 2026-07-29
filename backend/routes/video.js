@@ -1,26 +1,25 @@
 import express from "express";
 import {
-  uploadVideo,
+  initVideo,
+  getUploadSignature,
+  finalizeVideo,
   getUserVideos,
   getVideo,
   deleteVideo,
 } from "../controllers/videoController.js";
 import { isAuthenticatedUser } from "../middlewares/auth.js";
-import multer from "multer";
 
-// In-memory storage — the buffer goes straight to Cloudinary in the
-// controller, never touching disk. This avoids writing to
-// backend/uploads/videos, which doesn't exist / isn't writable on Vercel.
-// (Vercel's own request-body size cap of ~4.5MB applies regardless of this
-// fileSize limit — this just prevents oversized uploads locally too.)
-const upload = multer({
-  storage: multer.memoryStorage(),
-  limits: { fileSize: 500 * 1024 * 1024 }, // 500MB
-});
+// The video file itself no longer passes through this server at all — the
+// browser uploads it straight to Cloudinary using the signed params from
+// /videos/sign-upload, then calls /videos/:id/finalize with the result.
+// See utils/whisper.js + controllers/transcribeController.js for the
+// parallel audio-transcription side of this.
 const router = express.Router();
 
 router.route("/videos").get(isAuthenticatedUser, getUserVideos);
-router.route("/videos/upload").post(isAuthenticatedUser, upload.single("video"), uploadVideo);
+router.route("/videos/init").post(isAuthenticatedUser, initVideo);
+router.route("/videos/sign-upload").get(isAuthenticatedUser, getUploadSignature);
+router.route("/videos/:id/finalize").put(isAuthenticatedUser, finalizeVideo);
 router.route("/videos/:id").get(isAuthenticatedUser, getVideo);
 router.route("/videos/:id").delete(isAuthenticatedUser, deleteVideo);
 

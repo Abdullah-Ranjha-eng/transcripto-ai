@@ -18,6 +18,24 @@
         <div class="space-y-4">
           <div class="bg-gray-900 border border-gray-800 rounded-2xl overflow-hidden aspect-video">
             <video v-if="activeVideoUrl" :src="activeVideoUrl" controls class="w-full h-full object-contain" />
+            <div v-else-if="isThisVideoUploading" class="w-full h-full flex flex-col items-center justify-center gap-3 px-8">
+              <span class="text-3xl">📤</span>
+              <div class="w-full max-w-xs">
+                <div class="flex justify-between text-xs text-gray-400 mb-1.5">
+                  <span>Uploading video…</span>
+                  <span class="font-semibold text-indigo-400">{{ store.uploadProgress }}%</span>
+                </div>
+                <div class="w-full rounded-full h-2 overflow-hidden bg-gray-800">
+                  <div class="h-full rounded-full bg-gradient-to-r from-indigo-500 to-cyan-400 transition-all duration-200"
+                    :style="{ width: store.uploadProgress + '%' }"></div>
+                </div>
+              </div>
+              <p class="text-xs text-gray-600 text-center">You can already edit captions on the right — they don't need to wait for this.</p>
+            </div>
+            <div v-else-if="store.uploadFailed" class="w-full h-full flex flex-col items-center justify-center gap-2 text-center px-8">
+              <span class="text-3xl">⚠️</span>
+              <p class="text-sm text-red-400">Video upload failed. Please delete this and try again.</p>
+            </div>
             <div v-else class="w-full h-full flex items-center justify-center text-gray-600 text-4xl">🎬</div>
           </div>
 
@@ -40,8 +58,18 @@
 
           <!-- Action buttons -->
           <div class="grid grid-cols-2 gap-2">
-            <button @click="handleGenerate"
-              :disabled="store.loading"
+            <!-- While the upload is in flight, captions are usually already being
+                 generated automatically from the client-extracted audio (see
+                 store.captionsPending). This button becomes a manual fallback:
+                 hidden once captions exist, shown if the background pass hasn't
+                 produced anything yet or failed. -->
+            <div v-if="store.captionsPending && !store.captions"
+              class="col-span-2 flex items-center justify-center gap-2 rounded-lg py-2.5 text-sm font-medium bg-indigo-500/10 border border-indigo-500/30 text-indigo-300">
+              <span class="inline-block w-2 h-2 rounded-full bg-indigo-400 animate-pulse"></span>
+              Generating captions from audio…
+            </div>
+            <button v-else-if="!store.captions" @click="handleGenerate"
+              :disabled="store.loading || isThisVideoUploading"
               class="col-span-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 rounded-lg py-2.5 text-sm font-semibold transition">
               {{ store.loading && step === 'generate' ? "Generating…" : "🎙️ Generate Captions" }}
             </button>
@@ -60,11 +88,12 @@
                 </button>
               </div>
 
-              <!-- Burn -->
+              <!-- Burn (needs the fully-uploaded original video file server-side) -->
               <button @click="handleBurn"
-                :disabled="store.loading"
+                :disabled="store.loading || isThisVideoUploading"
+                :title="isThisVideoUploading ? 'Waiting for the video upload to finish…' : ''"
                 class="bg-orange-700 hover:bg-orange-600 disabled:opacity-40 rounded-lg py-2.5 text-sm font-semibold transition">
-                {{ store.loading && step === 'burn' ? "Burning…" : "🔥 Burn Captions" }}
+                {{ isThisVideoUploading ? "Waiting for upload…" : (store.loading && step === 'burn' ? "Burning…" : "🔥 Burn Captions") }}
               </button>
 
               <!-- Download -->
@@ -165,6 +194,15 @@ const activeCloudStatus = computed(() =>
     : store.currentVideo?.originalVideo?.cloudStatus
 );
 
+// True only while THIS video (not some other one the store might still be
+// tracking from a prior upload) is mid-upload — i.e. we navigated here
+// straight from the upload form and runVideoUpload hasn't finalized yet.
+const isThisVideoUploading = computed(() =>
+  store.currentVideo?._id === videoId &&
+  store.currentVideo?.status === "uploading" &&
+  !activeVideoUrl.value
+);
+
 // Poll while either asset is still syncing to Cloudinary in the background,
 // so the badge above clears and the URL swaps over automatically once done.
 let pollTimer = null;
@@ -192,6 +230,7 @@ const fmtTime = (s) => {
 };
 
 const statusClass = (s) => ({
+  uploading:  "bg-indigo-900 text-indigo-300",
   uploaded:   "bg-gray-700 text-gray-300",
   processing: "bg-yellow-800 text-yellow-300",
   captioned:  "bg-blue-800 text-blue-300",
@@ -251,8 +290,15 @@ const onClickOutside = (e) => {
 };
 
 onMounted(async () => {
-  await store.fetchVideo(videoId);
-  await store.fetchCaptions(videoId);
+  // If we just came from the upload form, store.currentVideo/captions for
+  // this exact id are already live and being updated in place by the
+  // background pipelines — re-fetching here would race a 404 (captions
+  // not saved yet) against them and could momentarily clobber the state.
+  const alreadyTracking = store.currentVideo?._id === videoId;
+  if (!alreadyTracking) {
+    await store.fetchVideo(videoId);
+    await store.fetchCaptions(videoId);
+  }
   document.addEventListener("click", onClickOutside);
   startPollingIfNeeded();
 });

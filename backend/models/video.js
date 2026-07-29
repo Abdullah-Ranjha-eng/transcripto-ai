@@ -22,8 +22,12 @@ const videoSchema = new mongoose.Schema({
   detectedLanguage: { type: String, default: null },
   status: {
     type: String,
-    enum: ["uploaded", "processing", "captioned", "translated", "burned"],
-    default: "uploaded",
+    // "uploading": record exists but the video file is still in flight to
+    // Cloudinary from the browser — captions can already be "captioned"
+    // even while status is technically still catching up here, since audio
+    // transcription runs independently and often finishes first.
+    enum: ["uploading", "uploaded", "processing", "captioned", "translated", "burned"],
+    default: "uploading",
   },
 }, { timestamps: true });
 

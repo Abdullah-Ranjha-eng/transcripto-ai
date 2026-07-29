@@ -72,7 +72,7 @@
             {{ starting ? "Starting…" : "Upload & Generate Captions →" }}
           </button>
           <p class="text-xs text-center" :class="theme.isDark ? 'text-gray-500' : 'text-gray-500'">
-            You'll be taken straight to the video page — upload and captioning continue in the background.
+            You'll be taken straight to the video page — the upload continues in the background there.
           </p>
         </div>
 
@@ -131,22 +131,15 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from "vue";
+import { ref } from "vue";
 import { useVideoStore } from "../stores/video.js";
 import { useThemeStore } from "../stores/theme.js";
 import { useRouter } from "vue-router";
 import ParticleCanvas from "../components/ParticleCanvas.vue";
-import { preloadFfmpeg } from "../utils/audio.js";
 
 const store = useVideoStore();
 const theme = useThemeStore();
 const router = useRouter();
-
-// Kick off the ffmpeg.wasm core download the moment this page loads —
-// by the time the user has picked a file and clicked upload, it's usually
-// already cached, instead of adding its full ~25-30MB load time on top of
-// the actual audio extraction.
-onMounted(() => { preloadFfmpeg(); });
 
 const title = ref("");
 const file  = ref(null);

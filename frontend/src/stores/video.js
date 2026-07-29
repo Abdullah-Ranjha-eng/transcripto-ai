@@ -2,7 +2,6 @@ import { defineStore } from "pinia";
 import { ref } from "vue";
 import api from "../api/axios.js";
 import { uploadVideoToCloudinary } from "../api/cloudinary.js";
-import { extractAudioInBrowser } from "../utils/audio.js";
 
 export const useVideoStore = defineStore("video", () => {
   const videos = ref([]);
@@ -11,16 +10,16 @@ export const useVideoStore = defineStore("video", () => {
   const loading = ref(false);
   const error = ref(null);
 
-  // ── Parallel upload state ────────────────────────────────────────
-  // Separate from `loading`/`error` above on purpose: those describe
-  // request/response actions the user explicitly triggers (fetch, burn,
-  // translate...). These describe the two background pipelines kicked off
-  // by startUpload, which run independently of any single request-response
-  // cycle and outlive the call that started them.
-  const uploadProgress = ref(0);     // 0-100, video → Cloudinary
+  // Upload is still: create the record instantly, navigate to the video
+  // page right away, and upload the file straight to Cloudinary in the
+  // background (no server proxy) — so the user isn't stuck staring at the
+  // upload form. What's gone is the parallel client-side audio
+  // transcription: captions are now strictly sequential — "Generate
+  // Captions" only becomes usable once the upload itself has finished
+  // (see isThisVideoUploading in VideoView.vue), and Translate/Burn only
+  // appear once captions exist.
+  const uploadProgress = ref(0); // 0-100, video → Cloudinary
   const uploadFailed = ref(false);
-  const captionsPending = ref(false); // true while audio extraction + transcription is running
-  const captionsFailed = ref(false);
 
   // ── Videos ────────────────────────────────────────────────────
   const fetchVideos = async () => {
@@ -61,18 +60,18 @@ export const useVideoStore = defineStore("video", () => {
 
   // Creates the video record immediately (no file transferred yet) and
   // returns it so the caller can navigate to the video page right away.
-  // Kicks off two independent background pipelines that are NOT awaited
-  // here — runVideoUpload (the slow, network-bound part: video → Cloudinary)
-  // and runAudioTranscription (extract audio in-browser + transcribe it,
-  // which is fast enough to usually finish first). Progress for both is
-  // exposed via uploadProgress/captionsPending so any mounted view can
-  // reflect it without re-triggering anything.
+  // The actual upload to Cloudinary runs in runVideoUpload, not awaited
+  // here — the video page shows its progress via uploadProgress.
   const startUpload = async (file, title) => {
     error.value = null;
     uploadProgress.value = 0;
     uploadFailed.value = false;
-    captionsPending.value = true;
-    captionsFailed.value = false;
+    // Without this, captions left over from whatever video was last viewed
+    // in this session stay in the store, and since Translate/Burn are
+    // gated purely on `store.captions` being truthy, they'd incorrectly
+    // unlock immediately — even though this new video hasn't been
+    // transcribed (or even finished uploading) yet.
+    captions.value = null;
 
     const { data } = await api.post("/videos/init", { title });
     const video = data.video;
@@ -80,7 +79,6 @@ export const useVideoStore = defineStore("video", () => {
     currentVideo.value = video;
 
     runVideoUpload(video._id, file);
-    runAudioTranscription(video._id, file);
 
     return video;
   };
@@ -104,32 +102,8 @@ export const useVideoStore = defineStore("video", () => {
     }
   };
 
-  const runAudioTranscription = async (videoId, file) => {
-    try {
-      const audioBlob = await extractAudioInBrowser(file);
-      const form = new FormData();
-      form.append("audio", audioBlob, "audio.mp3");
-      const { data } = await api.post(`/videos/${videoId}/captions/from-audio`, form, {
-        headers: { "Content-Type": "multipart/form-data" },
-      });
-      if (currentVideo.value?._id === videoId) {
-        captions.value = data.captions;
-        currentVideo.value.status = "captioned";
-        currentVideo.value.detectedLanguage = data.captions.language;
-      }
-    } catch (err) {
-      // Non-fatal: the manual "Generate Captions" button still works once
-      // the video upload finishes (it re-downloads from Cloudinary and
-      // extracts audio server-side), so this failing doesn't block anything.
-      captionsFailed.value = true;
-      console.error("Background audio transcription failed:", err);
-    } finally {
-      captionsPending.value = false;
-    }
-  };
-
   // Keeps `videos` list and `currentVideo` (if it's the same video) in sync
-  // after a background pipeline updates a record the user may have
+  // after the background upload updates a record the user may have
   // navigated away from.
   const _syncVideo = (videoId, updatedVideo) => {
     if (currentVideo.value?._id === videoId) currentVideo.value = updatedVideo;
@@ -228,7 +202,6 @@ export const useVideoStore = defineStore("video", () => {
   };
 
   const downloadCaptions = (videoId, format = "srt", language = null) => {
-    // let url = `http://localhost:5000/api/v1/videos/${videoId}/captions/download?format=${format}`;
     const apiBase = import.meta.env.VITE_API_URL || "http://localhost:5000/api/v1";
     let url = `${apiBase}/videos/${videoId}/captions/download?format=${format}`;
     if (language) url += `&language=${language}`;
@@ -237,7 +210,7 @@ export const useVideoStore = defineStore("video", () => {
 
   return {
     videos, currentVideo, captions, loading, error,
-    uploadProgress, uploadFailed, captionsPending, captionsFailed,
+    uploadProgress, uploadFailed,
     fetchVideos, fetchVideo, refreshVideoQuietly, startUpload, deleteVideo,
     generateCaptions, fetchCaptions, updateCaptions,
     translateCaptions, burnCaptions, downloadCaptions,

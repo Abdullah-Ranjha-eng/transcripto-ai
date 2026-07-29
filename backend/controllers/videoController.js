@@ -63,9 +63,10 @@ export const finalizeVideo = catchAsyncErrors(async (req, res, next) => {
   video.originalVideo = { public_id, url, cloudStatus: "done" };
   if (typeof duration === "number") video.duration = duration;
 
-  // Captions may already exist if the parallel audio-transcription pass
-  // (from-audio route) finished before this upload did — don't regress
-  // the status badge back to "uploaded" if so.
+  // Captions are only generated after upload finishes now, so this is
+  // normally always "uploaded" — the exists() check is just a defensive
+  // guard in case a caption doc ends up attached before finalize for any
+  // reason, so we don't regress a "captioned" badge back to "uploaded".
   const hasCaptions = await Caption.exists({ video: video._id, user: req.user._id });
   video.status = hasCaptions ? "captioned" : "uploaded";
   await video.save();

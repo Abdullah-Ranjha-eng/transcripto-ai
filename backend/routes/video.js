@@ -12,8 +12,9 @@ import { isAuthenticatedUser } from "../middlewares/auth.js";
 // The video file itself no longer passes through this server at all — the
 // browser uploads it straight to Cloudinary using the signed params from
 // /videos/sign-upload, then calls /videos/:id/finalize with the result.
-// See utils/whisper.js + controllers/transcribeController.js for the
-// parallel audio-transcription side of this.
+// Captions are generated separately afterward via routes/caption.js, once
+// the upload has finished (see VideoView.vue: Generate Captions is disabled
+// until then).
 const router = express.Router();
 
 router.route("/videos").get(isAuthenticatedUser, getUserVideos);

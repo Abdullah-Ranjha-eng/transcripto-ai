@@ -92,7 +92,7 @@ export const generateCaptions = catchAsyncErrors(async (req, res, next) => {
   // speaker actually starts talking (especially after a pause), which makes
   // captions appear too early. Word timestamps let us tighten each caption
   // to when speech genuinely begins. (Shared with the audio-first flow in
-  // transcribeController.js so both paths behave identically.)
+  // (this file no longer has an audio-first counterpart, but keeping the helper shared is still good practice.)
   let captions, language;
   try {
     ({ captions, language } = await transcribeAudioFile(tmpAudio));
@@ -203,12 +203,34 @@ export const burnCaptions = catchAsyncErrors(async (req, res, next) => {
   const { filePath: inputPath, isTemp: inputIsTemp } = await getLocalOriginalPath(video);
 
   // 3. Burn subtitles with FFmpeg into /tmp
+  //
+  // IMPORTANT: the `subtitles` filter renders text via libass, which needs
+  // fontconfig + installed font files to find *any* font by name. Vercel's
+  // Node runtime has neither — so this filter used to run without error and
+  // produce a "successful" burn with the video untouched (no visible text
+  // at all), which is exactly what showed up in testing. Passing an
+  // explicit `fontsdir` tells libass to scan that folder directly instead
+  // of asking fontconfig, so it works with zero system font setup. The
+  // font itself is bundled at backend/assets/fonts/DejaVuSans.ttf (DejaVu
+  // fonts are released under the permissive Bitstream Vera license).
+  const fontsDir = path.join(process.cwd(), "backend", "assets", "fonts");
+
   await new Promise((resolve, reject) => {
     const escapedSrt = srtPath.replace(/\\/g, "/").replace(/:/g, "\\:");
+    const escapedFontsDir = fontsDir.replace(/\\/g, "/").replace(/:/g, "\\:");
 
+    // NOTE: fluent-ffmpeg's outputOptions() splits each string on
+    // whitespace to build the final argv list. Every value here used to
+    // be space-free, so jamming "-vf <value>" into one string happened to
+    // work. "FontName=DejaVu Sans" introduces a real space *inside* the
+    // value, which that naive split then shredded mid-argument
+    // ("Unrecognized option 'vf subtitles=...'"). Passing -vf and its
+    // value as two separate array elements sidesteps the splitting
+    // entirely — each element is already an atomic argv token.
     ffmpeg(inputPath)
       .outputOptions([
-        `-vf subtitles='${escapedSrt}':force_style='FontSize=20,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Outline=2,Alignment=2'`,
+        "-vf",
+        `subtitles='${escapedSrt}':fontsdir='${escapedFontsDir}':force_style='FontName=DejaVu Sans,FontSize=16,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Outline=2,Alignment=2'`,
         "-c:v libx264",
         "-crf 23",
         "-preset fast",

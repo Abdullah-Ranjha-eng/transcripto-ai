@@ -30,7 +30,7 @@
                     :style="{ width: store.uploadProgress + '%' }"></div>
                 </div>
               </div>
-              <p class="text-xs text-gray-600 text-center">You can already edit captions on the right — they don't need to wait for this.</p>
+              <p class="text-xs text-gray-600 text-center">Once this finishes, you can generate captions.</p>
             </div>
             <div v-else-if="store.uploadFailed" class="w-full h-full flex flex-col items-center justify-center gap-2 text-center px-8">
               <span class="text-3xl">⚠️</span>
@@ -58,20 +58,15 @@
 
           <!-- Action buttons -->
           <div class="grid grid-cols-2 gap-2">
-            <!-- While the upload is in flight, captions are usually already being
-                 generated automatically from the client-extracted audio (see
-                 store.captionsPending). This button becomes a manual fallback:
-                 hidden once captions exist, shown if the background pass hasn't
-                 produced anything yet or failed. -->
-            <div v-if="store.captionsPending && !store.captions"
-              class="col-span-2 flex items-center justify-center gap-2 rounded-lg py-2.5 text-sm font-medium bg-indigo-500/10 border border-indigo-500/30 text-indigo-300">
-              <span class="inline-block w-2 h-2 rounded-full bg-indigo-400 animate-pulse"></span>
-              Generating captions from audio…
-            </div>
-            <button v-else-if="!store.captions" @click="handleGenerate"
+            <!-- Strictly sequential: this is disabled until the upload
+                 itself has finished (isThisVideoUploading is false), and
+                 Translate/Burn below don't appear at all until captions
+                 exist. -->
+            <button v-if="!store.captions" @click="handleGenerate"
               :disabled="store.loading || isThisVideoUploading"
+              :title="isThisVideoUploading ? 'Waiting for the video upload to finish…' : ''"
               class="col-span-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 rounded-lg py-2.5 text-sm font-semibold transition">
-              {{ store.loading && step === 'generate' ? "Generating…" : "🎙️ Generate Captions" }}
+              {{ isThisVideoUploading ? "Waiting for upload…" : (store.loading && step === 'generate' ? "Generating…" : "🎙️ Generate Captions") }}
             </button>
 
             <template v-if="store.captions">
@@ -88,12 +83,11 @@
                 </button>
               </div>
 
-              <!-- Burn (needs the fully-uploaded original video file server-side) -->
+              <!-- Burn -->
               <button @click="handleBurn"
-                :disabled="store.loading || isThisVideoUploading"
-                :title="isThisVideoUploading ? 'Waiting for the video upload to finish…' : ''"
+                :disabled="store.loading"
                 class="bg-orange-700 hover:bg-orange-600 disabled:opacity-40 rounded-lg py-2.5 text-sm font-semibold transition">
-                {{ isThisVideoUploading ? "Waiting for upload…" : (store.loading && step === 'burn' ? "Burning…" : "🔥 Burn Captions") }}
+                {{ store.loading && step === 'burn' ? "Burning…" : "🔥 Burn Captions" }}
               </button>
 
               <!-- Download -->
@@ -290,10 +284,10 @@ const onClickOutside = (e) => {
 };
 
 onMounted(async () => {
-  // If we just came from the upload form, store.currentVideo/captions for
-  // this exact id are already live and being updated in place by the
-  // background pipelines — re-fetching here would race a 404 (captions
-  // not saved yet) against them and could momentarily clobber the state.
+  // If we just came from the upload form, store.currentVideo for this
+  // exact id is already live and being updated in place by the background
+  // upload — re-fetching here is harmless but unnecessary, and skipping it
+  // avoids a redundant round-trip right after navigation.
   const alreadyTracking = store.currentVideo?._id === videoId;
   if (!alreadyTracking) {
     await store.fetchVideo(videoId);

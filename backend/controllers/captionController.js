@@ -12,8 +12,7 @@ import axios from "axios";
 import ffmpeg from "fluent-ffmpeg";
 import ffmpegPath from "ffmpeg-static";
 import cloudinary from "cloudinary";
-import { toPublicUrl, safeUnlink, localPathFor, VIDEOS_DIR, BURNED_DIR } from "../utils/localStorage.js";
-import { syncToCloudinaryInBackground } from "../utils/backgroundUpload.js";
+import { safeUnlink, localPathFor, VIDEOS_DIR } from "../utils/localStorage.js";
 import { transcribeAudioFile } from "../utils/whisper.js";
 
 
@@ -188,15 +187,22 @@ export const burnCaptions = catchAsyncErrors(async (req, res, next) => {
   const tmpDir = os.tmpdir();
   const srtPath = path.join(tmpDir, `${video._id}_${Date.now()}.srt`);
   const burnedFilename = `${video._id}_${randomUUID()}.mp4`;
-  const outputPath = localPathFor(BURNED_DIR, burnedFilename);
+  // /tmp is the ONLY writable location on Vercel — BURNED_DIR (under
+  // backend/uploads) doesn't exist there and can't be created at runtime,
+  // which is exactly what caused "Error opening output file ... No such
+  // file or directory". Burn into /tmp and upload the result to Cloudinary
+  // before responding, rather than the old local-folder + background-sync
+  // pattern, which also isn't safe here: Vercel can freeze the function
+  // right after the response is sent, killing an in-flight background
+  // upload before it finishes.
+  const outputPath = path.join(tmpDir, burnedFilename);
 
   fs.writeFileSync(srtPath, srtContent, "utf8");
 
   // 2. Get source video — reuses the local upload copy, no re-download
   const { filePath: inputPath, isTemp: inputIsTemp } = await getLocalOriginalPath(video);
 
-  // 3. Burn subtitles with FFmpeg, writing straight into the persistent
-  //    local "burned" folder so it's servable the instant this finishes.
+  // 3. Burn subtitles with FFmpeg into /tmp
   await new Promise((resolve, reject) => {
     const escapedSrt = srtPath.replace(/\\/g, "/").replace(/:/g, "\\:");
 
@@ -222,13 +228,25 @@ export const burnCaptions = catchAsyncErrors(async (req, res, next) => {
   //    once the new one finishes uploading (not before — avoids a gap
   //    where neither copy exists in Cloudinary).
   const previousBurnedPublicId = video.burnedVideo?.public_id || null;
-  const previousBurnedLocalFilename = video.burnedVideo?.localFilename || null;
 
-  // 6. Save the local, immediately-playable version and respond right away.
+  // 6. Upload the burned file to Cloudinary NOW, before responding — this
+  //    is the part that used to be a "fire and forget" background job,
+  //    which isn't reliable on Vercel (see note above). It's slower for
+  //    the user, but it means the URL we return is always real and
+  //    immediately playable, not a promise of one.
+  const uploadResult = await cloudinary.v2.uploader.upload(outputPath, {
+    resource_type: "video",
+    folder: "transcripto-ai/burned",
+    chunk_size: 6000000,
+    timeout: 180000,
+  });
+
+  safeUnlink(outputPath);
+
   video.burnedVideo = {
-    localFilename: burnedFilename,
-    url: toPublicUrl(outputPath),
-    cloudStatus: "pending",
+    public_id: uploadResult.public_id,
+    url: uploadResult.secure_url,
+    cloudStatus: "done",
   };
   video.status = "burned";
   await video.save();
@@ -239,19 +257,16 @@ export const burnCaptions = catchAsyncErrors(async (req, res, next) => {
     burnedVideo: video.burnedVideo,
   });
 
-  // 7. Fire-and-forget: push the burned video to Cloudinary in the
-  //    background, then clean up the previous burned asset.
-  syncToCloudinaryInBackground(video._id, "burnedVideo", outputPath, "transcripto-ai/burned")
-    .then(async () => {
-      if (previousBurnedPublicId) {
-        try {
-          await cloudinary.v2.uploader.destroy(previousBurnedPublicId, { resource_type: "video" });
-        } catch (_) {}
-      }
-      if (previousBurnedLocalFilename) {
-        safeUnlink(localPathFor(BURNED_DIR, previousBurnedLocalFilename));
-      }
-    });
+  // 7. Clean up the previous burned asset now that the new one is
+  //    confirmed live in Cloudinary. This runs after the response but is
+  //    just a delete — if the function gets frozen before it completes,
+  //    worst case is a harmless orphaned asset in Cloudinary, not a
+  //    broken video for the user.
+  if (previousBurnedPublicId) {
+    cloudinary.v2.uploader
+      .destroy(previousBurnedPublicId, { resource_type: "video" })
+      .catch(() => {});
+  }
 });
 
 // ── Download captions => GET /api/v1/videos/:videoId/captions/download ────

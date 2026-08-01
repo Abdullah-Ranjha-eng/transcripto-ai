@@ -5,6 +5,7 @@ import catchAsyncErrors from "../middlewares/catchAsyncErrors.js";
 import fs from "fs";
 import path from "path";
 import os from "os";
+import { fileURLToPath } from "url";
 import { randomUUID } from "crypto";
 import { pipeline } from "stream/promises";
 import { createWriteStream } from "fs";
@@ -17,6 +18,12 @@ import { transcribeAudioFile } from "../utils/whisper.js";
 
 
 ffmpeg.setFfmpegPath(ffmpegPath);
+
+// Resolved relative to THIS file, not process.cwd() — cwd isn't guaranteed
+// to be the function's project root inside Vercel's bundle, the same class
+// of bug the config.env loading in app.js had to work around.
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const FONTS_DIR = path.join(__dirname, "../fonts");
 
 // Helper: download video to temp file
 const downloadVideo = async (url, destPath) => {
@@ -212,18 +219,29 @@ export const burnCaptions = catchAsyncErrors(async (req, res, next) => {
   // but the output has no visible captions. `fontsdir` below points libass
   // at a font we ship in the repo instead of relying on the OS, and
   // `FontName` must match that font's internal family name exactly.
-  const fontsDir = path.join(process.cwd(), "fonts").replace(/\\/g, "/");
+  //
+  // IMPORTANT: -vf and its value MUST be two separate array entries.
+  // fluent-ffmpeg's outputOptions() splits a single string on whitespace
+  // to build argv, and it is NOT quote-aware — so a value with an embedded
+  // space (the font name "Noto Nastaliq Urdu" has two) gets shredded into
+  // multiple bogus arguments and ffmpeg fails with "Unrecognized option".
+  // Keeping "-vf" and the filter string as separate elements sidesteps
+  // that splitting entirely, regardless of spaces inside the value.
+  const escapedFontsDir = FONTS_DIR.replace(/\\/g, "/").replace(/:/g, "\\:");
 
   await new Promise((resolve, reject) => {
     const escapedSrt = srtPath.replace(/\\/g, "/").replace(/:/g, "\\:");
+    const vfValue =
+      `subtitles='${escapedSrt}':fontsdir='${escapedFontsDir}':` +
+      `force_style='FontName=Noto Nastaliq Urdu,FontSize=20,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Outline=2,Alignment=2'`;
 
     ffmpeg(inputPath)
       .outputOptions([
-        `-vf subtitles='${escapedSrt}':fontsdir='${fontsDir}':force_style='FontName=Noto Nastaliq Urdu,FontSize=20,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Outline=2,Alignment=2'`,
-        "-c:v libx264",
-        "-crf 23",
-        "-preset fast",
-        "-c:a copy",
+        "-vf", vfValue,
+        "-c:v", "libx264",
+        "-crf", "23",
+        "-preset", "fast",
+        "-c:a", "copy",
       ])
       .output(outputPath)
       .on("end", resolve)

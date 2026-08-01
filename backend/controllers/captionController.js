@@ -306,14 +306,21 @@ export const burnCaptions = catchAsyncErrors(async (req, res, next) => {
   // so `FontName` is picked per burn by scanning the caption text itself
   // (see pickFontForCaptions), not hardcoded to one script's font.
   //
-  // IMPORTANT: -vf and its value MUST be two separate array entries.
-  // fluent-ffmpeg's outputOptions() splits a single string on whitespace
-  // to build argv, and it is NOT quote-aware — so a value with an embedded
-  // space (font family names like "Noto Sans Devanagari" have them) gets
-  // shredded into multiple bogus arguments and ffmpeg fails with
-  // "Unrecognized option". Keeping "-vf" and the filter string as separate
-  // elements sidesteps that splitting entirely, regardless of spaces
-  // inside the value.
+  // IMPORTANT: outputOptions() must be called with -vf and its value as
+  // SEPARATE ARGUMENTS to this function call — NOT as two items inside one
+  // array. fluent-ffmpeg's outputOptions() re-applies a naive space-based
+  // heuristic to every item independently even when they're already split
+  // apart in an array: if `String(item).split(' ')` produces exactly 2
+  // pieces, it silently re-splits that item into two separate ffmpeg
+  // arguments. Font family names are exactly the kind of value that trips
+  // this — e.g. "Noto Sans" (one space) gets sliced in half, and the
+  // second half ends up as a stray bare argument that ffmpeg misreads as
+  // an output filename ("Error opening output file Sans,FontSize=...").
+  // "Noto Nastaliq Urdu" (two spaces) happens to dodge it, which is why
+  // that one "worked" before. Calling outputOptions(a, b, c, ...) with
+  // individual arguments — instead of outputOptions([a, b, c, ...]) —
+  // disables this heuristic entirely (verified against the library's own
+  // source), so it's safe regardless of how many spaces any value has.
   const escapedFontsDir = FONTS_DIR.replace(/\\/g, "/").replace(/:/g, "\\:");
   const chosenFont = pickFontForCaptions(captionDoc.captions);
 
@@ -324,13 +331,13 @@ export const burnCaptions = catchAsyncErrors(async (req, res, next) => {
       `force_style='FontName=${chosenFont.family},FontSize=20,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Outline=2,Alignment=2'`;
 
     ffmpeg(inputPath)
-      .outputOptions([
+      .outputOptions(
         "-vf", vfValue,
         "-c:v", "libx264",
         "-crf", "23",
         "-preset", "fast",
         "-c:a", "copy",
-      ])
+      )
       .output(outputPath)
       .on("end", resolve)
       .on("error", reject)

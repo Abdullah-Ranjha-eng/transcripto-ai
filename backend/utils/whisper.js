@@ -22,19 +22,28 @@ export const transcribeAudioFile = async (audioPath) => {
   const words = transcription.words || [];
   let wordIdx = 0;
 
-  const captions = transcription.segments.map((seg, i) => {
-    const nextSegStart = transcription.segments[i + 1]?.start ?? Infinity;
-    const segWords = [];
-    while (wordIdx < words.length && words[wordIdx].start < nextSegStart) {
-      segWords.push(words[wordIdx]);
-      wordIdx++;
-    }
+  const captions = transcription.segments
+    .map((seg, i) => {
+      const nextSegStart = transcription.segments[i + 1]?.start ?? Infinity;
+      const segWords = [];
+      while (wordIdx < words.length && words[wordIdx].start < nextSegStart) {
+        segWords.push(words[wordIdx]);
+        wordIdx++;
+      }
 
-    const firstWordStart = segWords.length ? segWords[0].start : seg.start;
-    const start = Math.max(seg.start, firstWordStart - LEAD_IN_SECONDS);
+      const firstWordStart = segWords.length ? segWords[0].start : seg.start;
+      const start = Math.max(seg.start, firstWordStart - LEAD_IN_SECONDS);
 
-    return { start, end: seg.end, text: seg.text.trim() };
-  });
+      return { start, end: seg.end, text: seg.text.trim() };
+    })
+    // Groq Whisper regularly emits empty-text segments on longer audio —
+    // silence, background music, or ambient noise between sentences. The
+    // Caption model requires non-empty `text` on every entry (Mongoose's
+    // required validator rejects "" same as null/undefined), so saving
+    // these as-is throws "Path `text` is required." — one error per empty
+    // segment. Word-index tracking above still needs to consume the right
+    // words per segment regardless, so filter AFTER the map, not before.
+    .filter((c) => c.text.length > 0);
 
   return { captions, language: transcription.language || "en" };
 };

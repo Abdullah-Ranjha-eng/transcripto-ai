@@ -35,11 +35,10 @@ const videoSchema = new mongoose.Schema({
   },
 }, { timestamps: true });
 
-videoSchema.pre("validate", function (next) {
+videoSchema.pre("validate", function () {
   if (!this.user && !this.guestId) {
-    return next(new Error("Video must belong to either a user or a guestId."));
+    throw new Error("Video must belong to either a user or a guestId.");
   }
-  next();
 });
 
 export default mongoose.model("Video", videoSchema);

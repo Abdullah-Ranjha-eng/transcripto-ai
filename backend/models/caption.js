@@ -15,11 +15,10 @@ const captionSchema = new mongoose.Schema({
   ],
 }, { timestamps: true });
 
-captionSchema.pre("validate", function (next) {
+captionSchema.pre("validate", function () {
   if (!this.user && !this.guestId) {
-    return next(new Error("Caption must belong to either a user or a guestId."));
+    throw new Error("Caption must belong to either a user or a guestId.");
   }
-  next();
 });
 
 export default mongoose.model("Caption", captionSchema);

@@ -203,12 +203,23 @@ export const burnCaptions = catchAsyncErrors(async (req, res, next) => {
   const { filePath: inputPath, isTemp: inputIsTemp } = await getLocalOriginalPath(video);
 
   // 3. Burn subtitles with FFmpeg into /tmp
+  //
+  // NOTE on fonts: libass (which powers the `subtitles` filter) needs an
+  // actual font file to rasterize glyphs. Locally this "just works" because
+  // your OS has system fonts covering Urdu/Arabic. On Vercel there are NO
+  // system fonts and no fontconfig cache — when libass can't resolve a font
+  // it silently draws nothing (ffmpeg still exits 0), so the burn "succeeds"
+  // but the output has no visible captions. `fontsdir` below points libass
+  // at a font we ship in the repo instead of relying on the OS, and
+  // `FontName` must match that font's internal family name exactly.
+  const fontsDir = path.join(process.cwd(), "fonts").replace(/\\/g, "/");
+
   await new Promise((resolve, reject) => {
     const escapedSrt = srtPath.replace(/\\/g, "/").replace(/:/g, "\\:");
 
     ffmpeg(inputPath)
       .outputOptions([
-        `-vf subtitles='${escapedSrt}':force_style='FontSize=20,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Outline=2,Alignment=2'`,
+        `-vf subtitles='${escapedSrt}':fontsdir='${fontsDir}':force_style='FontName=Noto Nastaliq Urdu,FontSize=20,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Outline=2,Alignment=2'`,
         "-c:v libx264",
         "-crf 23",
         "-preset fast",

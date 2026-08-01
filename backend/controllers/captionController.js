@@ -25,6 +25,88 @@ ffmpeg.setFfmpegPath(ffmpegPath);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const FONTS_DIR = path.join(__dirname, "../fonts");
 
+// A single font file only has glyphs for the script(s) it was designed for.
+// "Noto Nastaliq Urdu" covers Arabic-script text (Arabic, Urdu, Persian...)
+// but nothing else — burning Hindi (Devanagari), Chinese (CJK), Russian
+// (Cyrillic), etc. through that one font renders "tofu" placeholder boxes
+// for every glyph it doesn't have. So instead of one hardcoded font, we
+// scan the caption text's actual Unicode ranges and pick a font that
+// covers what's really there. All of these files must exist under
+// backend/fonts/ — see backend/fonts/PUT_FONT_HERE.txt for download links.
+const SCRIPT_FONTS = [
+  {
+    name: "arabic",
+    // Arabic + Arabic Presentation Forms — covers Arabic and Urdu text.
+    test: /[\u0600-\u06FF\u0750-\u077F\uFB50-\uFDFF\uFE70-\uFEFF]/,
+    file: "NotoNastaliqUrdu-Regular.ttf",
+    family: "Noto Nastaliq Urdu",
+  },
+  {
+    name: "devanagari",
+    // Hindi and related languages.
+    test: /[\u0900-\u097F]/,
+    file: "NotoSansDevanagari-Regular.ttf",
+    family: "Noto Sans Devanagari",
+  },
+  {
+    name: "cjk",
+    // Chinese (and CJK-shared ideographs).
+    test: /[\u4E00-\u9FFF\u3400-\u4DBF]/,
+    file: "NotoSansSC-Regular.ttf",
+    family: "Noto Sans SC",
+  },
+  {
+    name: "japanese",
+    // Hiragana / Katakana — checked separately from CJK so Japanese (which
+    // mixes kana with kanji) gets the JP-specific font, not the SC one.
+    test: /[\u3040-\u30FF]/,
+    file: "NotoSansJP-Regular.ttf",
+    family: "Noto Sans JP",
+  },
+  {
+    name: "cyrillic",
+    // Russian and related languages.
+    test: /[\u0400-\u04FF]/,
+    file: "NotoSans-Regular.ttf",
+    family: "Noto Sans",
+  },
+];
+
+// Default: Latin script (English, French, Spanish, German, Turkish,
+// Italian, Portuguese) plus anything that matched nothing above.
+const DEFAULT_FONT = { name: "latin", file: "NotoSans-Regular.ttf", family: "Noto Sans" };
+
+// Scans the concatenated caption text and returns the font entry for
+// whichever non-Latin script appears most. Falls back to DEFAULT_FONT for
+// plain Latin text (or if the matching font isn't actually on disk, so a
+// missing download doesn't silently break every burn — just non-Latin ones).
+const pickFontForCaptions = (captions) => {
+  const sample = captions.map((c) => c.text).join(" ");
+
+  let best = null;
+  let bestCount = 0;
+  for (const script of SCRIPT_FONTS) {
+    const matches = sample.match(new RegExp(script.test, "g"));
+    const count = matches ? matches.length : 0;
+    if (count > bestCount) {
+      best = script;
+      bestCount = count;
+    }
+  }
+
+  const chosen = best || DEFAULT_FONT;
+  const fontPath = path.join(FONTS_DIR, chosen.file);
+  if (!fs.existsSync(fontPath)) {
+    console.warn(
+      `[burnCaptions] Font file missing: ${fontPath} (needed for "${chosen.name}" script). ` +
+      `Falling back to ${DEFAULT_FONT.family} — non-Latin glyphs may render as boxes. ` +
+      `See backend/fonts/PUT_FONT_HERE.txt for download links.`
+    );
+    return DEFAULT_FONT;
+  }
+  return chosen;
+};
+
 // Helper: download video to temp file
 const downloadVideo = async (url, destPath) => {
   const response = await axios({ url, responseType: "stream" });
@@ -213,27 +295,33 @@ export const burnCaptions = catchAsyncErrors(async (req, res, next) => {
   //
   // NOTE on fonts: libass (which powers the `subtitles` filter) needs an
   // actual font file to rasterize glyphs. Locally this "just works" because
-  // your OS has system fonts covering Urdu/Arabic. On Vercel there are NO
+  // your OS has system fonts covering most scripts. On Vercel there are NO
   // system fonts and no fontconfig cache — when libass can't resolve a font
   // it silently draws nothing (ffmpeg still exits 0), so the burn "succeeds"
   // but the output has no visible captions. `fontsdir` below points libass
-  // at a font we ship in the repo instead of relying on the OS, and
-  // `FontName` must match that font's internal family name exactly.
+  // at fonts we ship in the repo instead of relying on the OS.
+  //
+  // A single font only covers the script(s) it was designed for, and this
+  // app translates into Arabic, Urdu, Hindi, Chinese, Russian, and more —
+  // so `FontName` is picked per burn by scanning the caption text itself
+  // (see pickFontForCaptions), not hardcoded to one script's font.
   //
   // IMPORTANT: -vf and its value MUST be two separate array entries.
   // fluent-ffmpeg's outputOptions() splits a single string on whitespace
   // to build argv, and it is NOT quote-aware — so a value with an embedded
-  // space (the font name "Noto Nastaliq Urdu" has two) gets shredded into
-  // multiple bogus arguments and ffmpeg fails with "Unrecognized option".
-  // Keeping "-vf" and the filter string as separate elements sidesteps
-  // that splitting entirely, regardless of spaces inside the value.
+  // space (font family names like "Noto Sans Devanagari" have them) gets
+  // shredded into multiple bogus arguments and ffmpeg fails with
+  // "Unrecognized option". Keeping "-vf" and the filter string as separate
+  // elements sidesteps that splitting entirely, regardless of spaces
+  // inside the value.
   const escapedFontsDir = FONTS_DIR.replace(/\\/g, "/").replace(/:/g, "\\:");
+  const chosenFont = pickFontForCaptions(captionDoc.captions);
 
   await new Promise((resolve, reject) => {
     const escapedSrt = srtPath.replace(/\\/g, "/").replace(/:/g, "\\:");
     const vfValue =
       `subtitles='${escapedSrt}':fontsdir='${escapedFontsDir}':` +
-      `force_style='FontName=Noto Nastaliq Urdu,FontSize=20,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Outline=2,Alignment=2'`;
+      `force_style='FontName=${chosenFont.family},FontSize=20,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Outline=2,Alignment=2'`;
 
     ffmpeg(inputPath)
       .outputOptions([

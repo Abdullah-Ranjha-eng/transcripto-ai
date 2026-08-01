@@ -15,7 +15,7 @@ const cloudAssetSchema = {
 };
 
 const videoSchema = new mongoose.Schema({
-  // Owned by exactly one of these two — a registered user, or (if uploaded
+  // Owned by exactly one of these two — a registered user, or (if uploaded)
   // without an account) a guest identified by the guestId cookie set in
   // middlewares/auth.js's identifyUser. See utils/ownership.js.
   user:       { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },

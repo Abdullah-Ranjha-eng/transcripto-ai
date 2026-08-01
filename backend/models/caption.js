@@ -8,7 +8,7 @@ const captionSchema = new mongoose.Schema({
   language: { type: String, default: "en" },
   captions: [
     {
-      start:   { type: Number, required: true },  // seconds
+      start:   { type: Number, required: true },  // seconds.
       end:     { type: Number, required: true },
       text:    { type: String, required: true },
     }

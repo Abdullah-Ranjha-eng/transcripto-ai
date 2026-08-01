@@ -147,6 +147,53 @@ const toSRT = (captions) => {
     .join("\n\n");
 };
 
+// Helper: build .ass content from captions array, with the chosen font baked
+// into the [V4+ Styles] header.
+//
+// WHY ASS INSTEAD OF SRT FOR BURNING: ffmpeg's `subtitles` filter (which
+// consumes .srt) hardcodes libass to "simple" (FriBidi-only) shaping — that
+// filter's AVOption table has no `shaping` knob, so the field is left
+// zero-initialized (= ASS_SHAPING_SIMPLE) and unconditionally applied.
+// Simple shaping never runs HarfBuzz, so it can't resolve the GSUB
+// positional/contextual substitutions Arabic-family scripts need — Nastaliq
+// Urdu in particular has no real "standalone" letterforms, everything is
+// substituted in from a joined/positional form. Without that substitution,
+// libass draws whatever's in the bare cmap slot, which renders as tofu
+// boxes. The sibling `ass` filter DOES expose `shaping=complex`, but it
+// reads a real .ass file (native libass track reader) instead of decoding
+// SRT through avcodec's subtitle decoder — so we build the .ass ourselves,
+// with style (font, size, colors) in the header instead of force_style
+// (which the `ass` filter doesn't support).
+const toASS = (captions, font) => {
+  const pad2 = (n) => String(Math.floor(n)).padStart(2, "0");
+  const toTimecode = (secs) => {
+    const h = Math.floor(secs / 3600);
+    const m = pad2((secs % 3600) / 60);
+    const s = pad2(secs % 60);
+    const cs = String(Math.round((secs % 1) * 100)).padStart(2, "0");
+    return `${h}:${m}:${s}.${cs}`;
+  };
+  const header =
+`[Script Info]
+ScriptType: v4.00+
+WrapStyle: 0
+ScaledBorderAndShadow: yes
+PlayResX: 384
+PlayResY: 288
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Default,${font.family},20,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,2,0,2,10,10,10,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+`;
+  const events = captions
+    .map((c) => `Dialogue: 0,${toTimecode(c.start)},${toTimecode(c.end)},Default,,0,0,0,,${c.text.replace(/\n/g, "\\N")}`)
+    .join("\n");
+  return header + events;
+};
+
 // ── Generate captions => POST /api/v1/videos/:videoId/captions ───────────
 export const generateCaptions = catchAsyncErrors(async (req, res, next) => {
   const video = await Video.findById(req.params.videoId);
@@ -271,10 +318,13 @@ export const burnCaptions = catchAsyncErrors(async (req, res, next) => {
   if (captionDoc.captions.length === 0)
     return next(new ErrorHandler("Captions are empty.", 400));
 
-  // 1. Write SRT to temp file
-  const srtContent = toSRT(captionDoc.captions);
+  // 1. Write ASS to temp file (see toASS for why ASS instead of SRT here —
+  // short version: only the `ass` ffmpeg filter supports shaping=complex,
+  // and it needs a real .ass file rather than force_style on top of SRT).
+  const chosenFont = pickFontForCaptions(captionDoc.captions);
+  const assContent = toASS(captionDoc.captions, chosenFont);
   const tmpDir = os.tmpdir();
-  const srtPath = path.join(tmpDir, `${video._id}_${Date.now()}.srt`);
+  const assPath = path.join(tmpDir, `${video._id}_${Date.now()}.ass`);
   const burnedFilename = `${video._id}_${randomUUID()}.mp4`;
   // /tmp is the ONLY writable location on Vercel — BURNED_DIR (under
   // backend/uploads) doesn't exist there and can't be created at runtime,
@@ -286,25 +336,41 @@ export const burnCaptions = catchAsyncErrors(async (req, res, next) => {
   // upload before it finishes.
   const outputPath = path.join(tmpDir, burnedFilename);
 
-  fs.writeFileSync(srtPath, srtContent, "utf8");
+  fs.writeFileSync(assPath, assContent, "utf8");
 
   // 2. Get source video — reuses the local upload copy, no re-download
   const { filePath: inputPath, isTemp: inputIsTemp } = await getLocalOriginalPath(video);
 
   // 3. Burn subtitles with FFmpeg into /tmp
   //
-  // NOTE on fonts: libass (which powers the `subtitles` filter) needs an
-  // actual font file to rasterize glyphs. Locally this "just works" because
-  // your OS has system fonts covering most scripts. On Vercel there are NO
-  // system fonts and no fontconfig cache — when libass can't resolve a font
-  // it silently draws nothing (ffmpeg still exits 0), so the burn "succeeds"
-  // but the output has no visible captions. `fontsdir` below points libass
-  // at fonts we ship in the repo instead of relying on the OS.
+  // NOTE on fonts: libass needs an actual font file to rasterize glyphs.
+  // Locally this "just works" because your OS has system fonts covering
+  // most scripts. On Vercel there are NO system fonts and no fontconfig
+  // cache — when libass can't resolve a font it silently draws nothing
+  // (ffmpeg still exits 0), so the burn "succeeds" but the output has no
+  // visible captions. `fontsdir` below points libass at fonts we ship in
+  // the repo instead of relying on the OS.
   //
   // A single font only covers the script(s) it was designed for, and this
   // app translates into Arabic, Urdu, Hindi, Chinese, Russian, and more —
-  // so `FontName` is picked per burn by scanning the caption text itself
-  // (see pickFontForCaptions), not hardcoded to one script's font.
+  // so the font is picked per burn by scanning the caption text itself
+  // (see pickFontForCaptions), not hardcoded to one script's font, and
+  // baked into the .ass Style header built by toASS().
+  //
+  // NOTE on the `ass` filter vs `subtitles` filter: we use `ass` here
+  // (not `subtitles`) specifically because `ass` exposes `shaping=complex`,
+  // which routes glyph selection through HarfBuzz. `subtitles` hardcodes
+  // libass to simple/FriBidi-only shaping with no way to override it — fine
+  // for Latin/Cyrillic/CJK/Devanagari base glyphs, but Arabic-family
+  // scripts (Arabic, Urdu/Nastaliq) have no meaningful standalone
+  // letterforms — every visible shape comes from GSUB positional/ligature
+  // substitution, which simple shaping never runs. Without it, libass
+  // draws the bare (effectively blank/placeholder) cmap glyph instead,
+  // which is why Urdu/Arabic burned as tofu boxes even though the font
+  // file itself was fine. `ass` reads a real .ass file via libass's own
+  // track reader rather than SRT decoded through avcodec, which is why
+  // toASS() exists and why force_style isn't used anymore (the `ass`
+  // filter doesn't support it — style lives in the .ass header instead).
   //
   // IMPORTANT: outputOptions() must be called with -vf and its value as
   // SEPARATE ARGUMENTS to this function call — NOT as two items inside one
@@ -315,20 +381,15 @@ export const burnCaptions = catchAsyncErrors(async (req, res, next) => {
   // arguments. Font family names are exactly the kind of value that trips
   // this — e.g. "Noto Sans" (one space) gets sliced in half, and the
   // second half ends up as a stray bare argument that ffmpeg misreads as
-  // an output filename ("Error opening output file Sans,FontSize=...").
-  // "Noto Nastaliq Urdu" (two spaces) happens to dodge it, which is why
-  // that one "worked" before. Calling outputOptions(a, b, c, ...) with
+  // an output filename. Calling outputOptions(a, b, c, ...) with
   // individual arguments — instead of outputOptions([a, b, c, ...]) —
   // disables this heuristic entirely (verified against the library's own
   // source), so it's safe regardless of how many spaces any value has.
   const escapedFontsDir = FONTS_DIR.replace(/\\/g, "/").replace(/:/g, "\\:");
-  const chosenFont = pickFontForCaptions(captionDoc.captions);
 
   await new Promise((resolve, reject) => {
-    const escapedSrt = srtPath.replace(/\\/g, "/").replace(/:/g, "\\:");
-    const vfValue =
-      `subtitles='${escapedSrt}':fontsdir='${escapedFontsDir}':` +
-      `force_style='FontName=${chosenFont.family},FontSize=20,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Outline=2,Alignment=2'`;
+    const escapedAss = assPath.replace(/\\/g, "/").replace(/:/g, "\\:");
+    const vfValue = `ass='${escapedAss}':fontsdir='${escapedFontsDir}':shaping=complex`;
 
     ffmpeg(inputPath)
       .outputOptions(
@@ -345,7 +406,7 @@ export const burnCaptions = catchAsyncErrors(async (req, res, next) => {
   });
 
   // 4. Cleanup the SRT (and the input, if it was a temp download fallback)
-  safeUnlink(srtPath);
+  safeUnlink(assPath);
   if (inputIsTemp) safeUnlink(inputPath);
 
   // 5. Remember the previous burned Cloudinary asset so we can delete it

@@ -7,6 +7,7 @@ import Caption from "../models/caption.js";
 import ErrorHandler from "../utils/errorHandler.js";
 import catchAsyncErrors from "../middlewares/catchAsyncErrors.js";
 import { transcribeAudioFile } from "../utils/whisper.js";
+import { ownerFields, isOwner } from "../utils/ownership.js";
 
 // ── Transcribe from client-extracted audio => POST /api/v1/videos/:videoId/captions/from-audio ──
 //
@@ -20,7 +21,7 @@ import { transcribeAudioFile } from "../utils/whisper.js";
 export const transcribeFromAudio = catchAsyncErrors(async (req, res, next) => {
   const video = await Video.findById(req.params.videoId);
   if (!video) return next(new ErrorHandler("Video not found.", 404));
-  if (video.user.toString() !== req.user._id.toString())
+  if (!isOwner(video, req))
     return next(new ErrorHandler("Not authorized.", 403));
 
   if (!req.file) return next(new ErrorHandler("Please provide an audio file.", 400));
@@ -40,7 +41,7 @@ export const transcribeFromAudio = catchAsyncErrors(async (req, res, next) => {
 
   // Same upsert shape as generateCaptions, so a manual "Generate Captions"
   // click later (e.g. if this background pass failed) behaves identically.
-  let captionDoc = await Caption.findOne({ video: video._id, user: req.user._id });
+  let captionDoc = await Caption.findOne({ video: video._id, ...ownerFields(req) });
   if (captionDoc) {
     captionDoc.captions = captions;
     captionDoc.language = language;
@@ -48,7 +49,7 @@ export const transcribeFromAudio = catchAsyncErrors(async (req, res, next) => {
   } else {
     captionDoc = await Caption.create({
       video: video._id,
-      user: req.user._id,
+      ...ownerFields(req),
       language,
       captions,
     });

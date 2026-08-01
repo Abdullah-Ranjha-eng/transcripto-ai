@@ -15,6 +15,7 @@ import ffmpegPath from "ffmpeg-static";
 import cloudinary from "cloudinary";
 import { safeUnlink, localPathFor, VIDEOS_DIR } from "../utils/localStorage.js";
 import { transcribeAudioFile } from "../utils/whisper.js";
+import { ownerFields, isOwner } from "../utils/ownership.js";
 
 
 ffmpeg.setFfmpegPath(ffmpegPath);
@@ -198,7 +199,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 export const generateCaptions = catchAsyncErrors(async (req, res, next) => {
   const video = await Video.findById(req.params.videoId);
   if (!video) return next(new ErrorHandler("Video not found.", 404));
-  if (video.user.toString() !== req.user._id.toString())
+  if (!isOwner(video, req))
     return next(new ErrorHandler("Not authorized.", 403));
 
   // Get the source video — reuses the local file from upload when possible
@@ -242,7 +243,7 @@ export const generateCaptions = catchAsyncErrors(async (req, res, next) => {
   if (captions.length === 0)
     return next(new ErrorHandler("Could not generate captions. Try a clearer audio.", 400));
 
-  let captionDoc = await Caption.findOne({ video: video._id, user: req.user._id });
+  let captionDoc = await Caption.findOne({ video: video._id, ...ownerFields(req) });
   if (captionDoc) {
     captionDoc.captions = captions;
     captionDoc.language = language;
@@ -250,7 +251,7 @@ export const generateCaptions = catchAsyncErrors(async (req, res, next) => {
   } else {
     captionDoc = await Caption.create({
       video: video._id,
-      user: req.user._id,
+      ...ownerFields(req),
       language,
       captions,
     });
@@ -267,7 +268,7 @@ export const generateCaptions = catchAsyncErrors(async (req, res, next) => {
 export const getVideoCaptions = catchAsyncErrors(async (req, res, next) => {
   const captionDoc = await Caption.findOne({
     video: req.params.videoId,
-    user: req.user._id,
+    ...ownerFields(req),
   });
   if (!captionDoc) return next(new ErrorHandler("Captions not found.", 404));
   res.status(200).json({ success: true, captions: captionDoc });
@@ -281,7 +282,7 @@ export const updateCaptions = catchAsyncErrors(async (req, res, next) => {
 
   const captionDoc = await Caption.findOne({
     video: req.params.videoId,
-    user: req.user._id,
+    ...ownerFields(req),
   });
   if (!captionDoc) return next(new ErrorHandler("Captions not found.", 404));
 
@@ -294,7 +295,7 @@ export const updateCaptions = catchAsyncErrors(async (req, res, next) => {
 export const deleteCaptions = catchAsyncErrors(async (req, res, next) => {
   const captionDoc = await Caption.findOneAndDelete({
     video: req.params.videoId,
-    user: req.user._id,
+    ...ownerFields(req),
   });
   if (!captionDoc) return next(new ErrorHandler("Captions not found.", 404));
   res.status(200).json({ success: true, message: "Captions deleted." });
@@ -304,11 +305,11 @@ export const deleteCaptions = catchAsyncErrors(async (req, res, next) => {
 export const burnCaptions = catchAsyncErrors(async (req, res, next) => {
   const video = await Video.findById(req.params.videoId);
   if (!video) return next(new ErrorHandler("Video not found.", 404));
-  if (video.user.toString() !== req.user._id.toString())
+  if (!isOwner(video, req))
     return next(new ErrorHandler("Not authorized.", 403));
 
   const { language } = req.body;
-  const query = { video: video._id, user: req.user._id };
+  const query = { video: video._id, ...ownerFields(req) };
   if (language) query.language = language;
 
   const captionDoc = await Caption.findOne(query);
@@ -465,10 +466,10 @@ export const downloadCaptions = catchAsyncErrors(async (req, res, next) => {
 
   const video = await Video.findById(req.params.videoId);
   if (!video) return next(new ErrorHandler("Video not found.", 404));
-  if (video.user.toString() !== req.user._id.toString())
+  if (!isOwner(video, req))
     return next(new ErrorHandler("Not authorized.", 403));
 
-  const query = { video: video._id, user: req.user._id };
+  const query = { video: video._id, ...ownerFields(req) };
   if (language) query.language = language;
 
   const captionDoc = await Caption.findOne(query);

@@ -113,9 +113,9 @@
               :class="theme.isDark ? 'text-gray-400 hover:text-white hover:bg-white/10' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'">
               Sign In
             </RouterLink>
-            <RouterLink to="/register"
+            <RouterLink to="/upload"
               class="px-4 py-1.5 rounded-xl text-sm font-bold text-white bg-gradient-to-r from-indigo-600 to-cyan-500 hover:from-indigo-500 hover:to-cyan-400 shadow-lg shadow-indigo-500/30 hover:shadow-indigo-500/50 transition-all duration-200">
-              Get Started
+              Upload
             </RouterLink>
           </template>
         </div>
@@ -180,9 +180,9 @@
             :class="theme.isDark ? 'text-gray-400 hover:text-white hover:bg-white/10' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'">
             Sign In
           </RouterLink>
-          <RouterLink to="/register" @click="mobileMenuOpen = false"
+          <RouterLink to="/upload" @click="mobileMenuOpen = false"
             class="block text-center mt-1 px-4 py-3 rounded-xl text-sm font-bold text-white bg-gradient-to-r from-indigo-600 to-cyan-500 hover:from-indigo-500 hover:to-cyan-400 shadow-lg shadow-indigo-500/30 transition-all duration-200">
-            Get Started
+            Upload
           </RouterLink>
         </template>
       </div>
@@ -191,7 +191,7 @@
 </template>
 
 <script setup>
-import { ref, watch } from "vue";
+import { ref, watch, computed } from "vue";
 import { useAuthStore } from "../stores/auth.js";
 import { useThemeStore } from "../stores/theme.js";
 import { useRouter, useRoute } from "vue-router";
@@ -206,12 +206,15 @@ const mobileMenuOpen = ref(false);
 // Close the mobile menu automatically whenever navigation happens
 watch(() => route.path, () => { mobileMenuOpen.value = false; });
 
-const navLinks = [
+// Dashboard is registered-users-only (it lists every video on the account),
+// so it's only worth showing guests a link they'd just get bounced from.
+// Upload/video pages work without an account, so those stay visible always.
+const navLinks = computed(() => [
   { to: "/", label: "Home" },
   { to: "/about", label: "About" },
-  { to: "/dashboard", label: "Dashboard" },
+  ...(auth.user ? [{ to: "/dashboard", label: "Dashboard" }] : []),
   { to: "/upload", label: "Upload" },
-];
+]);
 
 const handleLogout = async () => {
   mobileMenuOpen.value = false;

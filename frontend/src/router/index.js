@@ -6,8 +6,11 @@ const routes = [
   { path: "/login",     name: "Login",     component: () => import("../views/LoginView.vue") },
   { path: "/register",  name: "Register",  component: () => import("../views/RegisterView.vue") },
   { path: "/dashboard", name: "Dashboard", component: () => import("../views/DashboardView.vue"), meta: { requiresAuth: true } },
-  { path: "/upload",    name: "Upload",    component: () => import("../views/UploadView.vue"),    meta: { requiresAuth: true } },
-  { path: "/video/:id", name: "Video",     component: () => import("../views/VideoView.vue"),     meta: { requiresAuth: true } },
+  // Guests can upload and work on a video/its captions without an account —
+  // only the dashboard (the list of ALL your videos) requires registration.
+  // See backend/middlewares/auth.js's identifyUser + utils/ownership.js.
+  { path: "/upload",    name: "Upload",    component: () => import("../views/UploadView.vue") },
+  { path: "/video/:id", name: "Video",     component: () => import("../views/VideoView.vue") },
   { path: "/about",     name: "About",     component: () => import("../views/AboutView.vue") },
 ];
 

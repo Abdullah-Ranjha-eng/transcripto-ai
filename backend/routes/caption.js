@@ -9,7 +9,7 @@ import {
   downloadCaptions,        // ← ADD
 } from "../controllers/captionController.js";
 import { transcribeFromAudio } from "../controllers/transcribeController.js";
-import { isAuthenticatedUser } from "../middlewares/auth.js";
+import { identifyUser } from "../middlewares/auth.js";
 
 // Audio only, in memory. These are extracted client-side (ffmpeg.wasm) from
 // the video before/while the video itself uploads elsewhere, so they're
@@ -21,12 +21,12 @@ const uploadAudio = multer({
 
 const router = express.Router();
 
-router.route("/videos/:videoId/captions").post(isAuthenticatedUser, generateCaptions);
-router.route("/videos/:videoId/captions").get(isAuthenticatedUser, getVideoCaptions);
-router.route("/videos/:videoId/captions").put(isAuthenticatedUser, updateCaptions);
-router.route("/videos/:videoId/captions").delete(isAuthenticatedUser, deleteCaptions);
-router.route("/videos/:videoId/captions/burn").post(isAuthenticatedUser, burnCaptions);
-router.route("/videos/:videoId/captions/download").get(isAuthenticatedUser, downloadCaptions); // ← ADD
-router.route("/videos/:videoId/captions/from-audio").post(isAuthenticatedUser, uploadAudio.single("audio"), transcribeFromAudio);
+router.route("/videos/:videoId/captions").post(identifyUser, generateCaptions);
+router.route("/videos/:videoId/captions").get(identifyUser, getVideoCaptions);
+router.route("/videos/:videoId/captions").put(identifyUser, updateCaptions);
+router.route("/videos/:videoId/captions").delete(identifyUser, deleteCaptions);
+router.route("/videos/:videoId/captions/burn").post(identifyUser, burnCaptions);
+router.route("/videos/:videoId/captions/download").get(identifyUser, downloadCaptions); // ← ADD
+router.route("/videos/:videoId/captions/from-audio").post(identifyUser, uploadAudio.single("audio"), transcribeFromAudio);
 
 export default router;

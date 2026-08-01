@@ -15,7 +15,11 @@ const cloudAssetSchema = {
 };
 
 const videoSchema = new mongoose.Schema({
-  user:       { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
+  // Owned by exactly one of these two — a registered user, or (if uploaded
+  // without an account) a guest identified by the guestId cookie set in
+  // middlewares/auth.js's identifyUser. See utils/ownership.js.
+  user:       { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
+  guestId:    { type: String, default: null, index: true },
   title:      { type: String, required: true },
   originalVideo: cloudAssetSchema,
   burnedVideo:   cloudAssetSchema,
@@ -30,5 +34,12 @@ const videoSchema = new mongoose.Schema({
     default: "uploading",
   },
 }, { timestamps: true });
+
+videoSchema.pre("validate", function (next) {
+  if (!this.user && !this.guestId) {
+    return next(new Error("Video must belong to either a user or a guestId."));
+  }
+  next();
+});
 
 export default mongoose.model("Video", videoSchema);

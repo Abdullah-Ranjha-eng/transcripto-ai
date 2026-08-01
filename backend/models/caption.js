@@ -2,7 +2,9 @@ import mongoose from "mongoose";
 
 const captionSchema = new mongoose.Schema({
   video: { type: mongoose.Schema.Types.ObjectId, ref: "Video", required: true },
-  user:  { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
+  // Same owner pattern as models/video.js — see utils/ownership.js.
+  user:     { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
+  guestId:  { type: String, default: null, index: true },
   language: { type: String, default: "en" },
   captions: [
     {
@@ -12,5 +14,12 @@ const captionSchema = new mongoose.Schema({
     }
   ],
 }, { timestamps: true });
+
+captionSchema.pre("validate", function (next) {
+  if (!this.user && !this.guestId) {
+    return next(new Error("Caption must belong to either a user or a guestId."));
+  }
+  next();
+});
 
 export default mongoose.model("Caption", captionSchema);

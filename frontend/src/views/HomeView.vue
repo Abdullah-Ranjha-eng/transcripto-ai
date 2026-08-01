@@ -35,15 +35,18 @@
         <!-- REPLACE WITH -->
 <div class="flex flex-col sm:flex-row items-center justify-center gap-4 mb-16">
   <template v-if="!auth.user">
-    <RouterLink to="/register"
+    <!-- Uploading no longer requires an account (see backend identifyUser /
+         guestId) — the primary CTA goes straight to /upload. Login is only
+         needed for the dashboard, so that becomes the secondary action. -->
+    <RouterLink to="/upload"
       class="group px-8 py-4 bg-gradient-to-r from-indigo-600 to-cyan-500 hover:from-indigo-500 hover:to-cyan-400 rounded-2xl font-bold text-white text-lg shadow-2xl shadow-indigo-500/30 hover:shadow-indigo-500/50 transition-all duration-300 flex items-center gap-2">
-      Start for Free
+      Upload a Video
       <span class="group-hover:translate-x-1 transition-transform">→</span>
     </RouterLink>
-    <RouterLink to="/about"
+    <RouterLink to="/login"
       class="px-8 py-4 border rounded-2xl font-semibold text-lg backdrop-blur transition-all duration-300"
       :class="theme.isDark ? 'bg-white/5 hover:bg-white/10 border-white/10 text-gray-300' : 'bg-white hover:bg-gray-50 border-gray-200 text-gray-700'">
-      Learn More
+      Login for Dashboard
     </RouterLink>
   </template>
   <template v-else>

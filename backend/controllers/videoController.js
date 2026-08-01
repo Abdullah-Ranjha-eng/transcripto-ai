@@ -4,6 +4,7 @@ import ErrorHandler from "../utils/errorHandler.js";
 import catchAsyncErrors from "../middlewares/catchAsyncErrors.js";
 import cloudinary from "cloudinary";
 import { safeUnlink, localPathFor, VIDEOS_DIR, BURNED_DIR } from "../utils/localStorage.js";
+import { ownerFields, isOwner } from "../utils/ownership.js";
 
 // ── Create a placeholder record => POST /api/v1/videos/init ──────────────
 // Returns a real _id immediately, before a single byte of the video has
@@ -15,7 +16,7 @@ export const initVideo = catchAsyncErrors(async (req, res, next) => {
   if (!title) return next(new ErrorHandler("Please provide a title.", 400));
 
   const video = await Video.create({
-    user: req.user._id,
+    ...ownerFields(req),
     title,
     originalVideo: { cloudStatus: "pending" },
     status: "uploading",
@@ -57,7 +58,7 @@ export const finalizeVideo = catchAsyncErrors(async (req, res, next) => {
 
   const video = await Video.findById(req.params.id);
   if (!video) return next(new ErrorHandler("Video not found.", 404));
-  if (video.user.toString() !== req.user._id.toString())
+  if (!isOwner(video, req))
     return next(new ErrorHandler("Not authorized.", 403));
 
   video.originalVideo = { public_id, url, cloudStatus: "done" };
@@ -66,7 +67,7 @@ export const finalizeVideo = catchAsyncErrors(async (req, res, next) => {
   // Captions may already exist if the parallel audio-transcription pass
   // (from-audio route) finished before this upload did — don't regress
   // the status badge back to "uploaded" if so.
-  const hasCaptions = await Caption.exists({ video: video._id, user: req.user._id });
+  const hasCaptions = await Caption.exists({ video: video._id, ...ownerFields(req) });
   video.status = hasCaptions ? "captioned" : "uploaded";
   await video.save();
 
@@ -83,7 +84,7 @@ export const getUserVideos = catchAsyncErrors(async (req, res) => {
 export const getVideo = catchAsyncErrors(async (req, res, next) => {
   const video = await Video.findById(req.params.id);
   if (!video) return next(new ErrorHandler("Video not found.", 404));
-  if (video.user.toString() !== req.user._id.toString())
+  if (!isOwner(video, req))
     return next(new ErrorHandler("Not authorized to view this video.", 403));
 
   res.status(200).json({ success: true, video });
@@ -93,7 +94,7 @@ export const getVideo = catchAsyncErrors(async (req, res, next) => {
 export const deleteVideo = catchAsyncErrors(async (req, res, next) => {
   const video = await Video.findById(req.params.id);
   if (!video) return next(new ErrorHandler("Video not found.", 404));
-  if (video.user.toString() !== req.user._id.toString())
+  if (!isOwner(video, req))
     return next(new ErrorHandler("Not authorized to delete this video.", 403));
 
   // Remove from Cloudinary

@@ -57,24 +57,31 @@
           </div>
 
           <!-- Action buttons -->
-          <div class="grid grid-cols-2 gap-2">
-            <!-- While the upload is in flight, captions are usually already being
-                 generated automatically from the client-extracted audio (see
-                 store.captionsPending). This button becomes a manual fallback:
-                 hidden once captions exist, shown if the background pass hasn't
-                 produced anything yet or failed. -->
-            <div v-if="store.captionsPending && !store.captions"
+          <!-- Nothing in this block appears until the video itself has
+               finished uploading — captions/translate/burn only make sense
+               once there's a finished video to work with, so we gate the
+               whole sequence on that first instead of racing it. -->
+          <div v-if="isThisVideoUploading" class="rounded-lg py-2.5 text-sm text-center text-gray-500 bg-gray-900/60 border border-gray-800">
+            Waiting for the video to finish uploading…
+          </div>
+          <div v-else class="grid grid-cols-2 gap-2">
+            <!-- While the upload was in flight, captions may already have
+                 been generated automatically from the client-extracted audio
+                 (see store.captionsPending) — if so they're just sitting in
+                 store.captions ready to show now that upload is done, no
+                 further action needed here. -->
+            <div v-if="store.captionsPending && !hasCaptions"
               class="col-span-2 flex items-center justify-center gap-2 rounded-lg py-2.5 text-sm font-medium bg-indigo-500/10 border border-indigo-500/30 text-indigo-300">
               <span class="inline-block w-2 h-2 rounded-full bg-indigo-400 animate-pulse"></span>
               Generating captions from audio…
             </div>
-            <button v-else-if="!store.captions" @click="handleGenerate"
-              :disabled="store.loading || isThisVideoUploading"
+            <button v-else-if="!hasCaptions" @click="handleGenerate"
+              :disabled="store.loading"
               class="col-span-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 rounded-lg py-2.5 text-sm font-semibold transition">
               {{ store.loading && step === 'generate' ? "Generating…" : "🎙️ Generate Captions" }}
             </button>
 
-            <template v-if="store.captions">
+            <template v-if="hasCaptions">
               <!-- Translate -->
               <div class="col-span-2 flex gap-2">
                 <select v-model="targetLang" class="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white">
@@ -88,12 +95,11 @@
                 </button>
               </div>
 
-              <!-- Burn (needs the fully-uploaded original video file server-side) -->
+              <!-- Burn -->
               <button @click="handleBurn"
-                :disabled="store.loading || isThisVideoUploading"
-                :title="isThisVideoUploading ? 'Waiting for the video upload to finish…' : ''"
+                :disabled="store.loading"
                 class="bg-orange-700 hover:bg-orange-600 disabled:opacity-40 rounded-lg py-2.5 text-sm font-semibold transition">
-                {{ isThisVideoUploading ? "Waiting for upload…" : (store.loading && step === 'burn' ? "Burning…" : "🔥 Burn Captions") }}
+                {{ store.loading && step === 'burn' ? "Burning…" : "🔥 Burn Captions" }}
               </button>
 
               <!-- Download -->
@@ -128,7 +134,7 @@
         <div class="bg-gray-900 border border-gray-800 rounded-2xl p-5 flex flex-col">
           <div class="flex items-center justify-between mb-4">
             <h2 class="font-semibold text-sm text-gray-300">Caption Editor</h2>
-            <button v-if="store.captions && captionsEdited"
+            <button v-if="hasCaptions && captionsEdited"
               @click="handleSave"
               :disabled="store.loading"
               class="text-xs px-3 py-1.5 bg-green-700 hover:bg-green-600 rounded-lg font-medium transition">
@@ -136,7 +142,7 @@
             </button>
           </div>
 
-          <p v-if="!store.captions" class="text-gray-600 text-sm text-center my-auto">
+          <p v-if="!hasCaptions" class="text-gray-600 text-sm text-center my-auto">
             Generate captions to see them here.
           </p>
 
@@ -203,6 +209,14 @@ const isThisVideoUploading = computed(() =>
   !activeVideoUrl.value
 );
 
+// store.captions can be a truthy Caption document with an empty `captions`
+// array (e.g. a doc created before every segment was filtered out, or one
+// a background pass upserted without content yet) — every gate below needs
+// to check there's actually something in it, not just that the object
+// exists, or the UI shows Translate/Burn with nothing to act on and the
+// server correctly 404s when you click them.
+const hasCaptions = computed(() => !!store.captions?.captions?.length);
+
 // Poll while either asset is still syncing to Cloudinary in the background,
 // so the badge above clears and the URL swaps over automatically once done.
 let pollTimer = null;
@@ -239,11 +253,13 @@ const statusClass = (s) => ({
 }[s] || "bg-gray-700 text-gray-300");
 
 watch(() => store.captions, (val) => {
-  if (val) {
+  if (val?.captions?.length) {
     editableCaptions.value = val.captions.map((c) => ({ ...c }));
     captionsEdited.value = false;
+  } else {
+    editableCaptions.value = [];
   }
-});
+}, { immediate: true });
 
 const flash = (msg) => {
   successMsg.value = msg;

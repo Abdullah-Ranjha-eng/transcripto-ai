@@ -72,6 +72,17 @@ export const useVideoStore = defineStore("video", () => {
     error.value = null;
     uploadProgress.value = 0;
     uploadFailed.value = false;
+    // Must clear stale captions from whatever video was previously loaded —
+    // VideoView's onMounted skips re-fetching captions when it sees
+    // currentVideo already matches the target id (true here, since we're
+    // about to set it below), so if we don't reset this, the new video's
+    // page renders with the OLD video's captions still in state: the
+    // Generate button never shows (hasCaptions looks true) and Translate/
+    // Burn look available but 404 against the new video's real (empty)
+    // caption record. Most visible on short videos, since the fast upload
+    // makes it easy to jump between videos without an intervening reload
+    // (which would otherwise mask this by forcing a fresh fetchCaptions).
+    captions.value = null;
 
     const { data } = await api.post("/videos/init", { title });
     const video = data.video;

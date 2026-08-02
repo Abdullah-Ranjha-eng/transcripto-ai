@@ -64,9 +64,12 @@ export const finalizeVideo = catchAsyncErrors(async (req, res, next) => {
   video.originalVideo = { public_id, url, cloudStatus: "done" };
   if (typeof duration === "number") video.duration = duration;
 
-  // Captions may already exist if the parallel audio-transcription pass
-  // (from-audio route) finished before this upload did — don't regress
-  // the status badge back to "uploaded" if so.
+  // Defensive: don't downgrade the status badge back to "uploaded" if
+  // captions already exist for this video by the time upload finishes
+  // (e.g. generated on a previous attempt). In the current flow captions
+  // never start before upload completes (see stores/video.js's startUpload
+  // on the frontend), so this is normally a no-op — kept as a safety net
+  // rather than assuming that'll always hold.
   const hasCaptions = await Caption.exists({ video: video._id, ...ownerFields(req) });
   video.status = hasCaptions ? "captioned" : "uploaded";
   await video.save();

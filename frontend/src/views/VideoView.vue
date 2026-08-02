@@ -68,17 +68,7 @@
             <span v-else>Waiting for the video to finish uploading before captions can be generated…</span>
           </div>
           <div v-else class="grid grid-cols-2 gap-2">
-            <!-- While the upload was in flight, captions may already have
-                 been generated automatically from the client-extracted audio
-                 (see store.captionsPending) — if so they're just sitting in
-                 store.captions ready to show now that upload is done, no
-                 further action needed here. -->
-            <div v-if="store.captionsPending && !hasCaptions"
-              class="col-span-2 flex items-center justify-center gap-2 rounded-lg py-2.5 text-sm font-medium bg-indigo-500/10 border border-indigo-500/30 text-indigo-300">
-              <span class="inline-block w-2 h-2 rounded-full bg-indigo-400 animate-pulse"></span>
-              Generating captions from audio…
-            </div>
-            <button v-else-if="!hasCaptions" @click="handleGenerate"
+            <button v-if="!hasCaptions" @click="handleGenerate"
               :disabled="store.loading"
               class="col-span-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 rounded-lg py-2.5 text-sm font-semibold transition">
               {{ store.loading && step === 'generate' ? "Generating…" : "🎙️ Generate Captions" }}
@@ -145,7 +135,10 @@
             </button>
           </div>
 
-          <p v-if="!hasCaptions" class="text-gray-600 text-sm text-center my-auto">
+          <p v-if="!videoReady" class="text-gray-600 text-sm text-center my-auto">
+            Waiting for the video to finish uploading…
+          </p>
+          <p v-else-if="!hasCaptions" class="text-gray-600 text-sm text-center my-auto">
             Generate captions to see them here.
           </p>
 

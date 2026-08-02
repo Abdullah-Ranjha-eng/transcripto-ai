@@ -46,7 +46,7 @@
               <div v-if="!file">
                 <div class="text-4xl mb-3">📁</div>
                 <p class="font-semibold mb-1" :class="theme.isDark ? 'text-gray-300' : 'text-gray-700'">Drag & drop or click to select</p>
-                <p class="text-sm" :class="theme.isDark ? 'text-gray-500' : 'text-gray-500'">MP4, AVI, MOV, MKV — up to 500 MB</p>
+                <p class="text-sm" :class="theme.isDark ? 'text-gray-500' : 'text-gray-500'">MP4, AVI, MOV, MKV — larger files may need a paid Cloudinary plan</p>
               </div>
               <div v-else class="flex items-center justify-center gap-3 min-w-0">
                 <span class="text-2xl shrink-0">🎬</span>
@@ -59,6 +59,16 @@
             </div>
             <input ref="fileInput" type="file" accept="video/*" class="hidden" @change="onFileChange" />
           </div>
+
+          <!-- Non-blocking: we don't know the account's actual Cloudinary plan
+               here, so a file over the free-plan cap might still succeed on a
+               paid plan. This warns instead of preventing the upload attempt. -->
+          <p v-if="fileLikelyOverFreePlanLimit"
+            class="text-sm text-amber-400 bg-amber-900/20 border border-amber-800 rounded-xl px-4 py-3">
+            This file is {{ (file.size / 1024 / 1024).toFixed(0) }}MB. Cloudinary's free plan caps videos at
+            {{ FREE_PLAN_LIMIT_MB }}MB — if your account is on the free plan, this upload will fail. Upgrading
+            the Cloudinary plan or trimming the video will fix it.
+          </p>
 
           <p v-if="store.error" class="text-sm text-red-400 bg-red-900/20 border border-red-800 rounded-xl px-4 py-3">
             {{ store.error }}
@@ -131,7 +141,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from "vue";
+import { ref, computed, onMounted } from "vue";
 import { useVideoStore } from "../stores/video.js";
 import { useThemeStore } from "../stores/theme.js";
 import { useRouter } from "vue-router";
@@ -141,6 +151,12 @@ import { preloadFfmpeg } from "../utils/audio.js";
 const store = useVideoStore();
 const theme = useThemeStore();
 const router = useRouter();
+
+// Cloudinary's free-plan video cap — see cloudinary.js for the full
+// breakdown of plan limits. Only used here to show a heads-up, not to
+// block the upload, since we can't tell from the browser which plan the
+// connected Cloudinary account is actually on.
+const FREE_PLAN_LIMIT_MB = 100;
 
 // Kick off the ffmpeg.wasm core download the moment this page loads —
 // by the time the user has picked a file and clicked upload, it's usually
@@ -155,6 +171,10 @@ const fileInput = ref(null);
 
 const onFileChange = (e) => { file.value = e.target.files[0]; };
 const onDrop = (e) => { file.value = e.dataTransfer.files[0]; };
+
+const fileLikelyOverFreePlanLimit = computed(() =>
+  !!file.value && file.value.size / 1024 / 1024 > FREE_PLAN_LIMIT_MB
+);
 
 // startUpload only awaits the (fast, tiny) record-creation request — the
 // actual video upload and audio transcription keep running in the store

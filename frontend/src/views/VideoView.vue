@@ -58,11 +58,14 @@
 
           <!-- Action buttons -->
           <!-- Nothing in this block appears until the video itself has
-               finished uploading — captions/translate/burn only make sense
-               once there's a finished video to work with, so we gate the
-               whole sequence on that first instead of racing it. -->
-          <div v-if="isThisVideoUploading" class="rounded-lg py-2.5 text-sm text-center text-gray-500 bg-gray-900/60 border border-gray-800">
-            Waiting for the video to finish uploading…
+               finished uploading (videoReady — see its definition below for
+               why that's checked via activeVideoUrl and not `status`) —
+               captions/translate/burn only make sense once there's a
+               finished video to work with, so we gate the whole sequence on
+               that first instead of racing it. -->
+          <div v-if="!videoReady" class="rounded-lg py-2.5 text-sm text-center text-gray-500 bg-gray-900/60 border border-gray-800">
+            <span v-if="store.uploadFailed">Video upload failed — captions and burning aren't available until it's re-uploaded.</span>
+            <span v-else>Waiting for the video to finish uploading before captions can be generated…</span>
           </div>
           <div v-else class="grid grid-cols-2 gap-2">
             <!-- While the upload was in flight, captions may already have
@@ -208,6 +211,14 @@ const isThisVideoUploading = computed(() =>
   store.currentVideo?.status === "uploading" &&
   !activeVideoUrl.value
 );
+
+// The video's `status` field moves to "captioned" as soon as the background
+// audio-transcription pipeline finishes — which races independently of, and
+// often finishes before, the actual video upload to Cloudinary. So status
+// alone can't tell us the video is ready; it only tells us captions might
+// be. The one thing that actually means "the video finished uploading" is
+// having a real URL to play, which is exactly what finalizeVideo sets.
+const videoReady = computed(() => !!activeVideoUrl.value);
 
 // store.captions can be a truthy Caption document with an empty `captions`
 // array (e.g. a doc created before every segment was filtered out, or one

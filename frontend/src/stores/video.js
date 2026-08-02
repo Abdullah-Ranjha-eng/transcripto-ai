@@ -32,15 +32,23 @@ export const useVideoStore = defineStore("video", () => {
     }
   };
 
+  // Same out-of-order-response concern as fetchCaptions below: shared by
+  // fetchVideo and refreshVideoQuietly since both write to currentVideo and
+  // can legitimately be in flight for different video ids in quick
+  // succession (e.g. rapid dashboard navigation).
+  let currentVideoRequestSeq = 0;
+
   const fetchVideo = async (id) => {
     loading.value = true;
+    const seq = ++currentVideoRequestSeq;
     try {
       const { data } = await api.get(`/videos/${id}`);
-      currentVideo.value = data.video;
+      if (seq === currentVideoRequestSeq) currentVideo.value = data.video;
     } catch (err) {
-      error.value = err.response?.data?.message || "Failed to load video.";
+      if (seq === currentVideoRequestSeq)
+        error.value = err.response?.data?.message || "Failed to load video.";
     } finally {
-      loading.value = false;
+      if (seq === currentVideoRequestSeq) loading.value = false;
     }
   };
 
@@ -48,9 +56,10 @@ export const useVideoStore = defineStore("video", () => {
   // polling (e.g. Cloudinary sync status) so it can't flicker-disable the
   // Generate/Translate/Burn buttons, which are keyed off `loading`.
   const refreshVideoQuietly = async (id) => {
+    const seq = ++currentVideoRequestSeq;
     try {
       const { data } = await api.get(`/videos/${id}`);
-      currentVideo.value = data.video;
+      if (seq === currentVideoRequestSeq) currentVideo.value = data.video;
     } catch {
       // silent — this is a background poll, not a user-initiated action
     }
@@ -149,12 +158,20 @@ export const useVideoStore = defineStore("video", () => {
     }
   };
 
+  // Guards against out-of-order responses: if the user navigates from video
+  // A to video B quickly, A's fetchCaptions call may still be in flight and
+  // could resolve AFTER B's — without this, A's (stale, wrong-video) result
+  // would silently overwrite `captions` right after B's correct result
+  // landed. Only the most recently INITIATED call is allowed to write, no
+  // matter which one resolves first.
+  let captionsRequestSeq = 0;
   const fetchCaptions = async (videoId) => {
+    const seq = ++captionsRequestSeq;
     try {
       const { data } = await api.get(`/videos/${videoId}/captions`);
-      captions.value = data.captions;
+      if (seq === captionsRequestSeq) captions.value = data.captions;
     } catch {
-      captions.value = null;
+      if (seq === captionsRequestSeq) captions.value = null;
     }
   };
 

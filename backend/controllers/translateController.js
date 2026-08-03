@@ -12,7 +12,7 @@ const SUPPORTED_LANGUAGES = [
   "Chinese", "Turkish", "Russian", "Italian", "Portuguese", "Japanese"
 ];
 
-// Translate captions => POST /api/v1/videos/:videoId/translate
+// Translate captions => POST /api/v1/videos/:videoId/translate.
 export const translateCaptions = catchAsyncErrors(async (req, res, next) => {
   const { targetLanguage } = req.body;
   if (!targetLanguage)

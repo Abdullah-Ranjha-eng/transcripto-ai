@@ -16,7 +16,7 @@ import { ownerFields, isOwner } from "../utils/ownership.js";
 // larger video is still uploading to Cloudinary. This endpoint transcribes
 // that audio directly, skipping the "download the source video, then
 // ffmpeg-extract audio" steps that generateCaptions needs, since the caller
-// already did the equivalent work client-side. This is what lets captions
+// already did the equivalent work client-side. This is what lets captions.
 // finish before the video upload does.
 export const transcribeFromAudio = catchAsyncErrors(async (req, res, next) => {
   const video = await Video.findById(req.params.videoId);

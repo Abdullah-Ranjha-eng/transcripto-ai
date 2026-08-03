@@ -406,7 +406,7 @@ export const burnCaptions = catchAsyncErrors(async (req, res, next) => {
       .run();
   });
 
-  // 4. Cleanup the SRT (and the input, if it was a temp download fallback)
+  // 4. Cleanup the SRT (and the input, if it was a temp download fallback).
   safeUnlink(assPath);
   if (inputIsTemp) safeUnlink(inputPath);
 

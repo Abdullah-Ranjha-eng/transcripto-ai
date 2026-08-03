@@ -188,8 +188,8 @@ const CAPTION_LIMIT_MIN = 20;
 
 const uploadLimits = [
   "Up to 100MB per video",
-  "Up to 8 min to burn captions",
-  "Captions ready within 20 min",
+  "Up to 8 min videos to burn captions",
+  "can generate captions for up to 20 min videos",
   "Translate to 12 languages",
 ];
 

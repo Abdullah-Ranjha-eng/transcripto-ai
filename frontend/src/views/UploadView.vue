@@ -16,9 +16,19 @@
           <h1 class="text-4xl font-extrabold mb-3"
             :class="theme.isDark ? 'text-white' : 'text-gray-900'">Upload Your Video</h1>
           <p class="text-base" :class="theme.isDark ? 'text-gray-400' : 'text-gray-600'">
-            Drop any video file below. Captions are generated automatically in under 60 seconds.
+            Drop any video file below and get AI captions in minutes — edit, translate, or burn them right in.
           </p>
+
+          <!-- Limits -->
+          <div class="flex flex-wrap items-center justify-center gap-2 mt-5">
+            <span v-for="limit in uploadLimits" :key="limit"
+              class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium border"
+              :class="theme.isDark ? 'bg-white/5 border-white/10 text-gray-400' : 'bg-gray-100 border-gray-200 text-gray-600'">
+              {{ limit }}
+            </span>
+          </div>
         </div>
+
 
         <!-- Upload card -->
         <div class="border rounded-2xl p-8 space-y-5 mb-8"
@@ -46,7 +56,7 @@
               <div v-if="!file">
                 <div class="text-4xl mb-3">📁</div>
                 <p class="font-semibold mb-1" :class="theme.isDark ? 'text-gray-300' : 'text-gray-700'">Drag & drop or click to select</p>
-                <p class="text-sm" :class="theme.isDark ? 'text-gray-500' : 'text-gray-500'">MP4, AVI, MOV, MKV — larger files may need a paid Cloudinary plan</p>
+                <p class="text-sm" :class="theme.isDark ? 'text-gray-500' : 'text-gray-500'">MP4, AVI, MOV, MKV — up to 100MB and 8 minutes long</p>
               </div>
               <div v-else class="flex items-center justify-center gap-3 min-w-0">
                 <span class="text-2xl shrink-0">🎬</span>
@@ -68,6 +78,13 @@
             This file is {{ (file.size / 1024 / 1024).toFixed(0) }}MB. Cloudinary's free plan caps videos at
             {{ FREE_PLAN_LIMIT_MB }}MB — if your account is on the free plan, this upload will fail. Upgrading
             the Cloudinary plan or trimming the video will fix it.
+          </p>
+
+          <p v-if="durationLikelyOverBurnLimit"
+            class="text-sm text-amber-400 bg-amber-900/20 border border-amber-800 rounded-xl px-4 py-3">
+            This video is about {{ Math.ceil(videoDurationMinutes) }} minutes long. Captions can still be
+            generated, edited, and exported, but burning captions into videos over {{ BURN_LIMIT_MIN }} minutes
+            isn't supported yet — trim the video if you need a burned-in copy.
           </p>
 
           <p v-if="store.error" class="text-sm text-red-400 bg-red-900/20 border border-red-800 rounded-xl px-4 py-3">
@@ -158,6 +175,24 @@ const router = useRouter();
 // connected Cloudinary account is actually on.
 const FREE_PLAN_LIMIT_MB = 100;
 
+// Burning captions into the video re-encodes it client-side with ffmpeg.wasm,
+// which gets slow (and memory-hungry) fast — 8 minutes is roughly where that
+// stops being a good browser experience. Transcription/editing/translation
+// have no such limit, so we only warn, never block, on this one.
+const BURN_LIMIT_MIN = 8;
+
+// Caption generation (Groq Whisper) is fast, but a cold model load plus a
+// long/queued file can occasionally stretch out — 20 minutes is the outer
+// bound users should expect before checking back.
+const CAPTION_LIMIT_MIN = 20;
+
+const uploadLimits = [
+  "Up to 100MB per video",
+  "Up to 8 min to burn captions",
+  "Captions ready within 20 min",
+  "Translate to 12 languages",
+];
+
 // Kick off the ffmpeg.wasm core download the moment this page loads —
 // by the time the user has picked a file and clicked upload, it's usually
 // already cached, instead of adding its full ~25-30MB load time on top of
@@ -169,11 +204,31 @@ const file  = ref(null);
 const starting = ref(false);
 const fileInput = ref(null);
 
-const onFileChange = (e) => { file.value = e.target.files[0]; };
-const onDrop = (e) => { file.value = e.dataTransfer.files[0]; };
+const videoDurationMinutes = ref(0);
+
+// Reads duration client-side via a throwaway <video> element — cheap, and
+// lets us warn about the burn-in limit before the user ever uploads anything.
+const readDuration = (selected) => {
+  videoDurationMinutes.value = 0;
+  if (!selected) return;
+  const probe = document.createElement("video");
+  probe.preload = "metadata";
+  probe.onloadedmetadata = () => {
+    videoDurationMinutes.value = probe.duration / 60;
+    URL.revokeObjectURL(probe.src);
+  };
+  probe.src = URL.createObjectURL(selected);
+};
+
+const onFileChange = (e) => { file.value = e.target.files[0]; readDuration(file.value); };
+const onDrop = (e) => { file.value = e.dataTransfer.files[0]; readDuration(file.value); };
 
 const fileLikelyOverFreePlanLimit = computed(() =>
   !!file.value && file.value.size / 1024 / 1024 > FREE_PLAN_LIMIT_MB
+);
+
+const durationLikelyOverBurnLimit = computed(() =>
+  !!file.value && videoDurationMinutes.value > BURN_LIMIT_MIN
 );
 
 // startUpload only awaits the (fast, tiny) record-creation request — the
@@ -191,14 +246,14 @@ const handleUpload = async () => {
 const nextSteps = [
   "Your video is securely uploaded to Cloudinary and a record is created in the database.",
   "You're redirected to the Video page where you click 'Generate Captions' to trigger AI transcription.",
-  "Groq Whisper large-v3 auto-detects the language and returns timestamped captions in seconds.",
-  "Edit any line, translate to 12 languages, burn captions into the video, or download as SRT/TXT.",
+  `Groq Whisper large-v3 auto-detects the language and returns timestamped captions — usually in under a minute, up to ${CAPTION_LIMIT_MIN} min for longer files.`,
+  "Edit any line, translate to 12 languages, burn captions into videos up to 8 min long, or download as SRT/TXT.",
 ];
 
 const uploadFeatures = [
   { icon: "✏️", title: "Inline Editor",       desc: "Fix any word or rephrase entire lines directly in the browser — no app needed." },
   { icon: "🌍", title: "12-Language Translate", desc: "One click to translate all captions using LLaMA 3.3 70B — context-aware, not word-for-word." },
-  { icon: "🔥", title: "Burn Into Video",      desc: "Permanently embed subtitles so they show on any player or social platform." },
+  { icon: "🔥", title: "Burn Into Video",      desc: "Permanently embed subtitles on videos up to 8 minutes — plays on any player or social platform." },
   { icon: "📥", title: "SRT & TXT Export",     desc: "Download clean caption files for YouTube, Premiere Pro, Final Cut, or any subtitle tool." },
 ];
 

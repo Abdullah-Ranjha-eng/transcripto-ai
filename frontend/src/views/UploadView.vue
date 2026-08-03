@@ -15,9 +15,7 @@
           </div>
           <h1 class="text-4xl font-extrabold mb-3"
             :class="theme.isDark ? 'text-white' : 'text-gray-900'">Upload Your Video</h1>
-          <p class="text-base" :class="theme.isDark ? 'text-gray-400' : 'text-gray-600'">
-            Drop any video file below and get AI captions in minutes — edit, translate, or burn them right in.
-          </p>
+          
 
           <!-- Limits -->
           <div class="flex flex-wrap items-center justify-center gap-2 mt-5">

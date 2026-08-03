@@ -30,7 +30,7 @@
                     :style="{ width: store.uploadProgress + '%' }"></div>
                 </div>
               </div>
-              <p class="text-xs text-gray-600 text-center">You can already edit captions on the right — they don't need to wait for this.</p>
+              
             </div>
             <div v-else-if="store.uploadFailed" class="w-full h-full flex flex-col items-center justify-center gap-2 text-center px-8">
               <span class="text-3xl">⚠️</span>

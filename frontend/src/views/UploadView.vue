@@ -99,7 +99,7 @@
             {{ starting ? "Starting…" : "Upload & Generate Captions →" }}
           </button>
           <p class="text-xs text-center" :class="theme.isDark ? 'text-gray-500' : 'text-gray-500'">
-            You'll be taken straight to the video page — upload and captioning continue in the background.
+            You'll be taken straight to the video page.
           </p>
         </div>
 

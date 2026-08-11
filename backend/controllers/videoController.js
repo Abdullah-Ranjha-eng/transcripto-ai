@@ -77,7 +77,7 @@ export const finalizeVideo = catchAsyncErrors(async (req, res, next) => {
   res.status(200).json({ success: true, video });
 });
 
-// Get all videos for current user => GET /api/v1/videos
+// Get all videos for current user => GET /api/v1/videos.
 export const getUserVideos = catchAsyncErrors(async (req, res) => {
   const videos = await Video.find({ user: req.user._id }).sort({ createdAt: -1 });
   res.status(200).json({ success: true, count: videos.length, videos });

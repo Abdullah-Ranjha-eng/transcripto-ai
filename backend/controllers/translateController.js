@@ -36,7 +36,7 @@ export const translateCaptions = catchAsyncErrors(async (req, res, next) => {
   const textsJSON = JSON.stringify(captionDoc.captions.map((c) => c.text));
 
   const completion = await getGroq().chat.completions.create({
-    model: "llama-3.3-70b-versatile",
+    model: process.env.GROQ_MODEL || "openai/gpt-oss-120b",
     messages: [
       {
         role: "system",

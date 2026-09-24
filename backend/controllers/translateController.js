@@ -12,6 +12,43 @@ const SUPPORTED_LANGUAGES = [
   "Chinese", "Turkish", "Russian", "Italian", "Portuguese", "Japanese"
 ];
 
+// How many captions are sent to the model per request. Long videos are
+// translated in several small requests instead of one huge one.
+const CHUNK_SIZE = 40;
+
+// Translates one batch of strings. Retries once if the reply isn't a valid
+// JSON array with exactly the same number of items.
+const translateChunk = async (texts, targetLanguage, attempt = 1) => {
+  try {
+    const completion = await getGroq().chat.completions.create({
+      model: process.env.GROQ_MODEL || "openai/gpt-oss-120b",
+      messages: [
+        {
+          role: "system",
+          content: `You are a professional subtitle translator.
+Translate the following JSON array of strings to ${targetLanguage}.
+Return ONLY a valid JSON array of translated strings, with exactly ${texts.length} items, in the same order.
+Do not add any explanation, markdown, or extra text.`,
+        },
+        { role: "user", content: JSON.stringify(texts) },
+      ],
+      temperature: 0.3,
+    });
+
+    const raw = completion.choices[0].message.content.trim();
+    const clean = raw.replace(/```json|```/g, "").trim();
+    const parsed = JSON.parse(clean);
+
+    if (!Array.isArray(parsed) || parsed.length !== texts.length) {
+      throw new Error("Unexpected translation shape");
+    }
+    return parsed;
+  } catch (err) {
+    if (attempt < 2) return translateChunk(texts, targetLanguage, attempt + 1);
+    throw err;
+  }
+};
+
 // Translate captions => POST /api/v1/videos/:videoId/translate
 export const translateCaptions = catchAsyncErrors(async (req, res, next) => {
   const { targetLanguage } = req.body;
@@ -32,30 +69,17 @@ export const translateCaptions = catchAsyncErrors(async (req, res, next) => {
   if (!captionDoc)
     return next(new ErrorHandler("No captions found. Generate captions first.", 404));
 
-  // Send all texts to Groq LLaMA for translation
-  const textsJSON = JSON.stringify(captionDoc.captions.map((c) => c.text));
+  // Translate in batches so long videos don't hit output-size or time limits
+  const texts = captionDoc.captions.map((c) => c.text);
+  const translatedTexts = [];
 
-  const completion = await getGroq().chat.completions.create({
-    model: process.env.GROQ_MODEL || "openai/gpt-oss-120b",
-    messages: [
-      {
-        role: "system",
-        content: `You are a professional subtitle translator. 
-Translate the following JSON array of strings to ${targetLanguage}.
-Return ONLY a valid JSON array of translated strings in the same order.
-Do not add any explanation, markdown, or extra text.`,
-      },
-      { role: "user", content: textsJSON },
-    ],
-    temperature: 0.3,
-  });
-
-  let translatedTexts;
   try {
-    const raw = completion.choices[0].message.content.trim();
-    const clean = raw.replace(/```json|```/g, "").trim();
-    translatedTexts = JSON.parse(clean);
-  } catch {
+    for (let i = 0; i < texts.length; i += CHUNK_SIZE) {
+      const chunk = texts.slice(i, i + CHUNK_SIZE);
+      translatedTexts.push(...(await translateChunk(chunk, targetLanguage)));
+    }
+  } catch (err) {
+    console.error("Translation failed:", err.message);
     return next(new ErrorHandler("Translation failed. Please try again.", 500));
   }
 
